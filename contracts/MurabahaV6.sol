@@ -216,7 +216,7 @@ contract MurabahaV6 is
      * @notice Upgrade initializer — للـ Proxy الموجود على Sepolia
      * @dev يُستدعى عبر upgradeToAndCall() عند الترقية من نسخة سابقة
      */
-    function initializeV2() external reinitializer(2) {
+    function initializeV2() external reinitializer(2) onlyOwner {
         // ترحيل المتغيرات القديمة إلى tokenConfigs
         if (address(ethFeed) != address(0))
             _registerToken(address(0), address(ethFeed), 18, false);
