@@ -129,3 +129,18 @@ describe("H2 — حالات حدّية ومسار التكامل", () => {
     await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)).to.be.reverted;
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M5 — initializeV2 يجب أن تكون محميّة بـ onlyOwner (تُستدعى عبر فرع — المرحلة 11)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("M5 — initializeV2 محميّة بـ onlyOwner", () => {
+  it("غير المالك لا يستطيع استدعاء initializeV2", async () => {
+    const ctx = await deploy();
+    await expect(ctx.m.connect(ctx.stranger).initializeV2()).to.be.reverted;
+  });
+
+  it("المالك يستطيع استدعاء initializeV2 (مرّة واحدة)", async () => {
+    const ctx = await deploy();
+    await expect(ctx.m.connect(ctx.owner).initializeV2()).to.not.be.reverted;
+  });
+});
