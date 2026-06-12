@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-ts.sh\"",
+            "timeout": 30,
+            "statusMessage": "فحص أنواع TypeScript..."
+          }
+        ]
+      }
+    ]
+  }
+}

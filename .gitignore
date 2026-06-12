@@ -1,0 +1,22 @@
+# تبعيات
+node_modules/
+
+# أسرار — لا تُرفع أبداً
+.env
+.env.local
+.env.*.local
+
+# مخرجات بناء Hardhat (مولّدة)
+artifacts/
+cache/
+typechain-types/
+coverage/
+
+# سجلّات ونظام التشغيل
+*.log
+.DS_Store
+
+# إعدادات Claude المحلية (شخصية) — نُبقي settings.json المشترك + commands + hooks
+.claude/settings.local.json
+
+# ملاحظة: .openzeppelin/ يُحفظ عمداً (manifest الترقية الحرج لـ UUPS)

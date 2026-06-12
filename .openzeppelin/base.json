@@ -1,0 +1,540 @@
+{
+  "manifestVersion": "3.2",
+  "proxies": [
+    {
+      "address": "0x40D0941285993e98b1d53011336ccc7755661e7e",
+      "txHash": "0xa78ef7b3b7c5c4ae80b9e3414c878669911d3a5c602d12ebcef31ebe8c2107aa",
+      "kind": "uups"
+    }
+  ],
+  "impls": {
+    "a6234492b54ccf2f9e8146c9b42b8244f9289d2db8be0f4540591b8922171867": {
+      "address": "0x0106d015093e1cd3FaaaA9Df2F46777dD870C3FB",
+      "txHash": "0x4559d30729143dccbf3363c2c75db43738decf5599c1f06ee856229d113e52d3",
+      "layout": {
+        "solcVersion": "0.8.22",
+        "storage": [
+          {
+            "label": "tokenConfigs",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_mapping(t_address,t_struct(TokenConfig)2712_storage)",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:86"
+          },
+          {
+            "label": "tokenList",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_array(t_address)dyn_storage",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:90"
+          },
+          {
+            "label": "usdc",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_contract(IERC20)1345",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:138"
+          },
+          {
+            "label": "wbtc",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_contract(IERC20)1345",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:138"
+          },
+          {
+            "label": "ethFeed",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_contract(IChainlinkFeed)5976",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:139"
+          },
+          {
+            "label": "btcFeed",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_contract(IChainlinkFeed)5976",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:140"
+          },
+          {
+            "label": "brokerageFeeBps",
+            "offset": 20,
+            "slot": "5",
+            "type": "t_uint16",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:141"
+          },
+          {
+            "label": "protocolFeeBps",
+            "offset": 22,
+            "slot": "5",
+            "type": "t_uint16",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:141"
+          },
+          {
+            "label": "brokerTreasury",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_address",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:141"
+          },
+          {
+            "label": "protocolTreasury",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_address",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:142"
+          },
+          {
+            "label": "keeper",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_address",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:142"
+          },
+          {
+            "label": "nextOfferId",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_uint256",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:143"
+          },
+          {
+            "label": "nextPositionId",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_uint256",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:143"
+          },
+          {
+            "label": "offers",
+            "offset": 0,
+            "slot": "11",
+            "type": "t_mapping(t_uint256,t_struct(Offer)2757_storage)",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:144"
+          },
+          {
+            "label": "positions",
+            "offset": 0,
+            "slot": "12",
+            "type": "t_mapping(t_uint256,t_struct(Position)2785_storage)",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:144"
+          },
+          {
+            "label": "_sellerOffers",
+            "offset": 0,
+            "slot": "13",
+            "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:144"
+          },
+          {
+            "label": "_buyerPositions",
+            "offset": 0,
+            "slot": "14",
+            "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:145"
+          },
+          {
+            "label": "_pendingETH",
+            "offset": 0,
+            "slot": "15",
+            "type": "t_struct(Ledger)6469_storage",
+            "contract": "MurabahaV6",
+            "src": "contracts/MurabahaV6.sol:145"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_struct(InitializableStorage)369_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(OwnableStorage)13_storage": {
+            "label": "struct OwnableUpgradeable.OwnableStorage",
+            "members": [
+              {
+                "label": "_owner",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(PausableStorage)115_storage": {
+            "label": "struct PausableUpgradeable.PausableStorage",
+            "members": [
+              {
+                "label": "_paused",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_array(t_address)dyn_storage": {
+            "label": "address[]",
+            "numberOfBytes": "32"
+          },
+          "t_array(t_uint256)dyn_storage": {
+            "label": "uint256[]",
+            "numberOfBytes": "32"
+          },
+          "t_contract(IChainlinkFeed)5976": {
+            "label": "contract IChainlinkFeed",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IERC20)1345": {
+            "label": "contract IERC20",
+            "numberOfBytes": "20"
+          },
+          "t_enum(OfferState)2725": {
+            "label": "enum MurabahaV6.OfferState",
+            "members": [
+              "ACTIVE",
+              "CLOSED"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_enum(PositionState)2729": {
+            "label": "enum MurabahaV6.PositionState",
+            "members": [
+              "ACTIVE",
+              "COMPLETED",
+              "LIQUIDATED"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_array(t_uint256)dyn_storage)": {
+            "label": "mapping(address => uint256[])",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_struct(TokenConfig)2712_storage)": {
+            "label": "mapping(address => struct MurabahaV6.TokenConfig)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_uint256)": {
+            "label": "mapping(address => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(Offer)2757_storage)": {
+            "label": "mapping(uint256 => struct MurabahaV6.Offer)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(Position)2785_storage)": {
+            "label": "mapping(uint256 => struct MurabahaV6.Position)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(Ledger)6469_storage": {
+            "label": "struct TransferLib.Ledger",
+            "members": [
+              {
+                "label": "balances",
+                "type": "t_mapping(t_address,t_uint256)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(Offer)2757_storage": {
+            "label": "struct MurabahaV6.Offer",
+            "members": [
+              {
+                "label": "seller",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "saleToken",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "collateralToken",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "paymentToken",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "totalAmount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "saleAmount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "minPurchaseAmount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "profitBps",
+                "type": "t_uint16",
+                "offset": 0,
+                "slot": "7"
+              },
+              {
+                "label": "minInstallments",
+                "type": "t_uint8",
+                "offset": 2,
+                "slot": "7"
+              },
+              {
+                "label": "maxInstallments",
+                "type": "t_uint8",
+                "offset": 3,
+                "slot": "7"
+              },
+              {
+                "label": "paymentInterval",
+                "type": "t_uint32",
+                "offset": 4,
+                "slot": "7"
+              },
+              {
+                "label": "collateralRatioBps",
+                "type": "t_uint16",
+                "offset": 8,
+                "slot": "7"
+              },
+              {
+                "label": "state",
+                "type": "t_enum(OfferState)2725",
+                "offset": 10,
+                "slot": "7"
+              }
+            ],
+            "numberOfBytes": "256"
+          },
+          "t_struct(Position)2785_storage": {
+            "label": "struct MurabahaV6.Position",
+            "members": [
+              {
+                "label": "offerId",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "buyer",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "saleToken",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "collateralToken",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "paymentToken",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "saleAmount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "collateralAmount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "totalPayable",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "7"
+              },
+              {
+                "label": "totalInstallments",
+                "type": "t_uint8",
+                "offset": 0,
+                "slot": "8"
+              },
+              {
+                "label": "paidInstallments",
+                "type": "t_uint8",
+                "offset": 1,
+                "slot": "8"
+              },
+              {
+                "label": "paymentInterval",
+                "type": "t_uint32",
+                "offset": 2,
+                "slot": "8"
+              },
+              {
+                "label": "nextDueDate",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "9"
+              },
+              {
+                "label": "state",
+                "type": "t_enum(PositionState)2729",
+                "offset": 0,
+                "slot": "10"
+              }
+            ],
+            "numberOfBytes": "352"
+          },
+          "t_struct(TokenConfig)2712_storage": {
+            "label": "struct MurabahaV6.TokenConfig",
+            "members": [
+              {
+                "label": "chainlinkFeed",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "decimals",
+                "type": "t_uint8",
+                "offset": 20,
+                "slot": "0"
+              },
+              {
+                "label": "isStablecoin",
+                "type": "t_bool",
+                "offset": 21,
+                "slot": "0"
+              },
+              {
+                "label": "active",
+                "type": "t_bool",
+                "offset": 22,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_uint16": {
+            "label": "uint16",
+            "numberOfBytes": "2"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint32": {
+            "label": "uint32",
+            "numberOfBytes": "4"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.Pausable": [
+            {
+              "contract": "PausableUpgradeable",
+              "label": "_paused",
+              "type": "t_bool",
+              "src": "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol:21",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Ownable": [
+            {
+              "contract": "OwnableUpgradeable",
+              "label": "_owner",
+              "type": "t_address",
+              "src": "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:24",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin/contracts/proxy/utils/Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin/contracts/proxy/utils/Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
