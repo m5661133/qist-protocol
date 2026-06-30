@@ -48,8 +48,8 @@
 > - 🌐 Platform: [qist.info](https://qist.info)
 > - - 📖 How it works: [qist.info/how-it-works.html](https://qist.info/how-it-works.html)
 >   - - 🕌 Islamic DeFi explained: [qist.info/islamic-defi.html](https://qist.info/islamic-defi.html)
->     - - 🐦 Twitter/X: [@QistProtocol](https://x.com/QistProtocol)
->       - - 💬 Telegram: [t.me/QistProtocol](https://t.me/QistProtocol)
+> 		- - Twitter/X: [@QistDeFi](https://x.com/QistDeFi)
+> 		- - Telegram: [t.me/qistdefi](https://t.me/qistdefi)
 >        
 >         - ---
 >
