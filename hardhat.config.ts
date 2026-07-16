@@ -21,7 +21,12 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    hardhat: {},
+    // FORK=1 يفعّل fork من Base mainnet لاختبار الترقية بأمان (storage validation)
+    hardhat: process.env.FORK ? {
+      hardfork: "cancun",
+      forking: { url: BASE_RPC, blockNumber: 47770000 },
+      chains: { 8453: { hardforkHistory: { cancun: 0 } } },
+    } : {},
     sepolia: {
       url: SEPOLIA_RPC,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],

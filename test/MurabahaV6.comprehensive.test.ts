@@ -709,13 +709,15 @@ describe("H — التصفية", () => {
     expect((await m.getPosition(1)).collateralAmount).to.equal(0n);
   });
 
-  it("performUpkeep مفتوح لأي عنوان (keeper عام)", async () => {
+  it("performUpkeep مقيّد بالـ keeper أو المالك", async () => {
     const ctx = await deploy();
     await openPosition(ctx);
     await ctx.btcFeed.setAnswer(BTC_CRASH);
     const data = ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [1]);
-    // مفتوح — أي عنوان يقدر يستدعيه
-    await expect(ctx.m.connect(ctx.stranger).performUpkeep(data)).not.to.be.reverted;
+    await expect(ctx.m.connect(ctx.stranger).performUpkeep(data))
+      .to.be.revertedWithCustomError(ctx.m, "NotAuthorized");
+    await expect(ctx.m.connect(ctx.keeper).performUpkeep(data))
+      .to.emit(ctx.m, "PositionLiquidated");
   });
 
   it("isLiquidatable: false للمركز المكتمل", async () => {
@@ -819,7 +821,7 @@ describe("J — الإدارة والأذونات", () => {
     const { m, owner } = await deploy();
     await m.connect(owner).setBrokerageFee(100);
     expect(await m.brokerageFeeBps()).to.equal(100);
-    await expect(m.connect(owner).setBrokerageFee(301))
+    await expect(m.connect(owner).setBrokerageFee(101))
       .to.be.revertedWithCustomError(m, "InvalidParams");
   });
 
@@ -856,6 +858,12 @@ describe("J — الإدارة والأذونات", () => {
     await expect(m.connect(stranger).setProtocolTreasury(stranger.address)).to.be.reverted;
     await expect(m.connect(stranger).setKeeper(stranger.address)).to.be.reverted;
     await expect(m.connect(stranger).pause()).to.be.reverted;
+  });
+
+  it("renounceOwnership معطّل", async () => {
+    const { m, owner } = await deploy();
+    await expect(m.connect(owner).renounceOwnership())
+      .to.be.revertedWithCustomError(m, "RenounceOwnershipDisabled");
   });
 
   it("quotePrice يُرجع السعر الصحيح", async () => {
@@ -1495,5 +1503,124 @@ describe("R — FB-32: دوال التدخل اليدوي العامة", () => {
 
     await expect(m.connect(stranger).processInstallmentPublic(1))
       .to.be.revertedWithCustomError(m, "NotDueYet");
+  });
+
+  it("R-06: liquidatePositionPublic يسمح بتصفية undercollateral قبل grace period", async () => {
+    const ctx = await deploy();
+    await openPosition(ctx);
+    await ctx.btcFeed.setAnswer(BTC_CRASH);
+
+    await expect(ctx.m.connect(ctx.stranger).liquidatePositionPublic(1))
+      .to.emit(ctx.m, "PositionLiquidated");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S — Hardening fixes
+// ═══════════════════════════════════════════════════════════════════════════
+describe("S — إصلاحات التحصين", () => {
+  it("يرفض stablecoin لا يستخدم 6 decimals", async () => {
+    const { m, buyer2, owner } = await deploy();
+    await expect(m.connect(owner).addSupportedToken(buyer2.address, ethers.ZeroAddress, 8, true))
+      .to.be.revertedWithCustomError(m, "InvalidParams");
+  });
+
+  it("يرفض profitBps أكبر من 30000 (300%)", async () => {
+    const { m, wbtc, usdc, seller } = await deploy();
+    const mAddr = await m.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await expect(
+      m.connect(seller).createOffer(await wbtc.getAddress(), await wbtc.getAddress(), await usdc.getAddress(), BTC(1), 30001, 1, 12, INTERVAL, 0, 12000, false)
+    ).to.be.revertedWithCustomError(m, "InvalidParams");
+  });
+
+  it("يرفض paymentInterval أكبر من سنة", async () => {
+    const { m, wbtc, usdc, seller } = await deploy();
+    const mAddr = await m.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await expect(
+      m.connect(seller).createOffer(await wbtc.getAddress(), await wbtc.getAddress(), await usdc.getAddress(), BTC(1), 1000, 1, 12, 365 * 24 * 60 * 60 + 1, 0, 12000, false)
+    ).to.be.revertedWithCustomError(m, "InvalidParams");
+  });
+
+  it("يرفض ربحاً تناسبياً يصبح صفراً رغم أن profitBps > 0", async () => {
+    const { m, wbtc, usdc, seller, buyer } = await deploy();
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(1), 1, 1, 12, INTERVAL, 0, 12000, false);
+    await wbtc.connect(buyer).approve(mAddr, BTC(2));
+    await expect(m.connect(buyer).buy(1, BTC(1), BTC(2), Q_BTC, 1, false))
+      .to.be.revertedWithCustomError(m, "EffectiveProfitTooLow");
+    await expect(m.estimatePurchase(1, BTC(1), 1))
+      .to.be.revertedWithCustomError(m, "EffectiveProfitTooLow");
+  });
+
+  it("addCollateral يرفض عند تعطيل توكن الضمان", async () => {
+    const ctx = await deploy();
+    await openPosition(ctx);
+    await ctx.m.connect(ctx.owner).removeSupportedToken(await ctx.wbtc.getAddress());
+    await expect(ctx.m.connect(ctx.buyer).addCollateral(1, BTC(0.1)))
+      .to.be.revertedWithCustomError(ctx.m, "TokenNotSupported");
+  });
+
+  it("emergencyWithdraw يعمل فقط أثناء الإيقاف", async () => {
+    const { m, owner, buyer } = await deploy();
+    const mAddr = await m.getAddress();
+    await owner.sendTransaction({ to: mAddr, value: E("1") });
+    await expect(m.connect(owner).emergencyWithdraw(ethers.ZeroAddress, buyer.address, E("0.1")))
+      .to.be.revertedWithCustomError(m, "ExpectedPause");
+
+    await m.connect(owner).pause();
+    const before = await ethers.provider.getBalance(buyer.address);
+    await m.connect(owner).emergencyWithdraw(ethers.ZeroAddress, buyer.address, E("0.1"));
+    expect(await ethers.provider.getBalance(buyer.address)).to.equal(before + E("0.1"));
+  });
+
+  // ── M-01: فهرس المراكز النشطة (CODE-V4-1) ──────────────────────────
+  it("M-01: فتح مركز يزيد العدّاد والإكمال المبكر يُنقصه", async () => {
+    const ctx = await deploy();
+    expect(await ctx.m.activePositionsCount()).to.equal(0);
+    await openPosition(ctx);
+    expect(await ctx.m.activePositionsCount()).to.equal(1);
+    await ctx.m.connect(ctx.buyer).earlyRepayCash(1);
+    expect(await ctx.m.activePositionsCount()).to.equal(0);
+  });
+
+  it("M-01: التصفية تُزيل المركز من الفهرس النشط", async () => {
+    const ctx = await deploy();
+    await openPosition(ctx);
+    expect(await ctx.m.activePositionsCount()).to.equal(1);
+    await time.increase(INTERVAL_N + GRACE + 1); // متأخر → قابل للتصفية
+    await ctx.m.liquidatePositionPublic(1);
+    expect(await ctx.m.activePositionsCount()).to.equal(0);
+  });
+
+  it("M-01: swap-and-pop — إكمال مركز من المنتصف لا يفقد البقية", async () => {
+    const ctx = await deploy();
+    const { m, wbtc, usdc, seller, buyer } = ctx;
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(10));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(3), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await wbtc.connect(buyer).approve(mAddr, BTC(50));
+    await usdc.connect(buyer).approve(mAddr, U(5_000_000));
+    // 3 مراكز: #1, #2, #3
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false);
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false);
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false);
+    expect(await m.activePositionsCount()).to.equal(3);
+    // أكمل المركز الأوسط #2 — يُختبر swap-and-pop (يُنقل #3 لمكان #2)
+    await m.connect(buyer).earlyRepayCash(2);
+    expect(await m.activePositionsCount()).to.equal(2);
+    expect((await m.getPosition(1)).state).to.equal(0); // ACTIVE
+    expect((await m.getPosition(2)).state).to.equal(1); // COMPLETED
+    expect((await m.getPosition(3)).state).to.equal(0); // ACTIVE — لم يُفقد
+    // أكمل الباقي للتأكد أن الفهرس يصل صفر بلا خطأ
+    await m.connect(buyer).earlyRepayCash(1);
+    await m.connect(buyer).earlyRepayCash(3);
+    expect(await m.activePositionsCount()).to.equal(0);
   });
 });

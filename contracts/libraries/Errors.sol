@@ -13,6 +13,8 @@ library Errors {
     error ZeroAmount();
     error InvalidParams();
     error CollateralNotAccepted();
+    error RenounceOwnershipDisabled();
+    error EffectiveProfitTooLow();
 
     // ── الصلاحيات ─────────────────────────────
     error NotBuyer();
