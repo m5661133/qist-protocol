@@ -155,6 +155,14 @@ contract MurabahaV6 is
     /// @dev positionId → (index+1) داخل _activePositionIds؛ القيمة 0 = «غير موجود»
     mapping(uint256 => uint256) private _activePositionIndex;
 
+    // ═══════════ Build 18: M-03 — مُلحَق أخيراً (آمن للتخزين) ═══════════
+    /// @dev إجمالي التزامات ETH المعلّقة للسحب (pull pattern).
+    ///      تحقّق on-chain (2026-07-16): صفر أحداث Credited تاريخياً → البدء من 0 دقيق.
+    uint256 public totalPendingETH;
+    /// @dev حارس الطوارئ — يستطيع pause() فقط. address(0) = معطّل.
+    ///      الغاية: بعد نقل الملكية لـ Timelock 48h يبقى إيقاف الطوارئ فورياً عبر الـ Safe.
+    address public guardian;
+
     // ═══════════ Events ═══════════
 
     event TokenAdded(address indexed token, address indexed feed, uint8 decimals, bool isStablecoin);
@@ -175,6 +183,7 @@ contract MurabahaV6 is
     event CollateralChanged(uint256 indexed positionId, int256 delta);
     event AutoFeeCollected(uint256 indexed positionId, uint256 autoFee, bool isLiquidationFee); // FB-60
     event KeeperSet(address indexed oldKeeper, address indexed newKeeper);
+    event GuardianSet(address indexed oldGuardian, address indexed newGuardian); // Build 18: M-03
     event UpkeepFailed(uint256 indexed positionId, bytes reason);
     event EmergencyWithdrawn(address indexed token, address indexed to, uint256 amount);
 
@@ -710,10 +719,22 @@ contract MurabahaV6 is
             if (liq && offers[p.offerId].autoLiquidateEnabled)
                 return (true, abi.encode(pid));
             // FB-60: الدفع التلقائي فقط إذا فعّله المشتري
-            if (!liq && p.autoPayEnabled && block.timestamp >= p.nextDueDate)
+            // Build 18 (M-01): + شرط قابلية التحصيل — مركز برصيد/سماحية ناقصة يُتخطّى
+            // بدل أن يحتلّ رأس الطابور ويحجب أتمتة بقية المراكز حتى GRACE.
+            // المتخطّى: يُدفع يدوياً، أو يصبح قابلاً للتصفية بعد GRACE فيلتقطه الفرع الأول.
+            if (!liq && p.autoPayEnabled && block.timestamp >= p.nextDueDate && _canAutoPay(p))
                 return (true, abi.encode(pid));
         }
         return (false, bytes(""));
+    }
+
+    /// @dev Build 18 (M-01): هل يمكن تحصيل القسط التلقائي فعلاً؟ (رصيد + سماحية المشتري)
+    function _canAutoPay(Position storage p) internal view returns (bool) {
+        uint256 amount = MurabahaMath.nextInstallment(p.totalPayable, p.totalInstallments, p.paidInstallments);
+        uint256 total  = amount + (amount * AUTO_PAY_FEE_BPS) / BPS;
+        IERC20 pay = IERC20(p.paymentToken);
+        return pay.balanceOf(p.buyer) >= total
+            && pay.allowance(p.buyer, address(this)) >= total;
     }
 
     function performUpkeep(bytes calldata performData) external whenNotPaused onlyKeeperOrOwner {
@@ -808,9 +829,10 @@ contract MurabahaV6 is
         if (token == address(0)) {
             if (to == msg.sender) {
                 (bool ok,) = to.call{value: amount}("");
-                if (!ok) _pendingETH.credit(to, amount);
+                if (!ok) { _pendingETH.credit(to, amount); totalPendingETH += amount; } // Build 18: M-03
             } else {
                 _pendingETH.credit(to, amount);
+                totalPendingETH += amount; // Build 18: M-03
             }
         } else {
             IERC20(token).safeTransfer(to, amount);
@@ -819,7 +841,9 @@ contract MurabahaV6 is
 
     /// @notice سحب ETH المعلّق (pull pattern)
     function withdrawETH() external nonReentrant {
-        _pendingETH.withdraw(msg.sender);
+        uint256 amount = _pendingETH.withdraw(msg.sender);
+        // Build 18 (M-03): إنقاص مُشبَع — يتحمّل أي رصيد قديم سابق للعدّاد دون underflow
+        totalPendingETH = totalPendingETH >= amount ? totalPendingETH - amount : 0;
     }
 
     function pendingETH(address account) external view returns (uint256) {
@@ -849,8 +873,19 @@ contract MurabahaV6 is
         emit KeeperSet(keeper, k);
         keeper = k;
     }
-    function pause()   external onlyOwner { _pause(); }
+    /// @dev Build 18 (M-03): pause متاح للمالك أو الحارس — بعد Timelock يبقى إيقاف الطوارئ فورياً.
+    ///      unpause تبقى onlyOwner (عبر Timelock) — إعادة التشغيل قرار متأنٍّ معلَن، متعمَّد.
+    function pause() external {
+        if (msg.sender != owner() && msg.sender != guardian) revert Errors.NotAuthorized();
+        _pause();
+    }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice Build 18 (M-03): يضبط حارس الطوارئ (pause فقط). address(0) = تعطيل.
+    function setGuardian(address g) external onlyOwner {
+        emit GuardianSet(guardian, g);
+        guardian = g;
+    }
 
     /// @notice H2: يضبط مغذّي L2 Sequencer Uptime (address(0) لتعطيل الفحص على الشبكات بلا sequencer)
     function setSequencerUptimeFeed(address feed) external onlyOwner {
@@ -866,6 +901,11 @@ contract MurabahaV6 is
     {
         if (to == address(0) || amount == 0) revert Errors.InvalidParams();
         if (token == address(0)) {
+            // Build 18 (M-03): لا يجوز مسّ ETH المستحق سحبه للمستخدمين (pull liabilities)
+            uint256 free = address(this).balance > totalPendingETH
+                ? address(this).balance - totalPendingETH
+                : 0;
+            if (amount > free) revert Errors.InsufficientFreeETH();
             (bool ok,) = to.call{value: amount}("");
             if (!ok) revert Errors.TransferFailed();
         } else {

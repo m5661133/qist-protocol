@@ -71,4 +71,8 @@ library Errors {
     error GracePeriodNotExpired();
     /// @notice القسط القادم لم يحن وقته بعد
     error NotDueYet();
+
+    // ── Build 18: M-03 ────────────────────────
+    /// @notice سحب الطوارئ يتجاوز ETH الحر (الرصيد − التزامات pull المعلّقة)
+    error InsufficientFreeETH();
 }

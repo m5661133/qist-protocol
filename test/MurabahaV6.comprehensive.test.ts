@@ -1624,3 +1624,141 @@ describe("S — إصلاحات التحصين", () => {
     expect(await m.activePositionsCount()).to.equal(0);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحصيل) + M-03 (pendingETH/guardian)", () => {
+  // ── مساعد: مركزان autoPay لمشترييْن مختلفين ─────────────────────────────
+  async function twoAutoPayPositions(ctx: Ctx) {
+    const { m, wbtc, usdc, seller, buyer, buyer2 } = ctx;
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(10));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(2), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    for (const b of [buyer, buyer2]) {
+      await wbtc.connect(b).approve(mAddr, BTC(50));
+      await usdc.connect(b).approve(mAddr, U(2_000_000));
+    }
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, true);  // مركز #1 autoPay
+    await m.connect(buyer2).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, true); // مركز #2 autoPay
+    await time.increase(INTERVAL_N + 1); // كلاهما مستحق
+    return { mAddr };
+  }
+
+  it("M-01: رأس الطابور بلا سماحية يُتخطّى — checkUpkeep يُرجع المركز الثاني", async () => {
+    const ctx = await deploy();
+    const { m, usdc, buyer } = ctx;
+    const { mAddr } = await twoAutoPayPositions(ctx);
+    await usdc.connect(buyer).approve(mAddr, 0); // مشتري #1 يسحب السماحية → رأس فاشل
+    const [needed, performData] = await m.checkUpkeep("0x");
+    expect(needed).to.equal(true);
+    const pid = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], performData)[0];
+    expect(pid).to.equal(2n); // تخطّى #1 المسدود والتقط #2
+  });
+
+  it("M-01: عودة السماحية تُعيد المركز الأول لرأس الطابور", async () => {
+    const ctx = await deploy();
+    const { m, usdc, buyer } = ctx;
+    const { mAddr } = await twoAutoPayPositions(ctx);
+    await usdc.connect(buyer).approve(mAddr, 0);
+    await usdc.connect(buyer).approve(mAddr, U(2_000_000)); // رجعت
+    const [, performData] = await m.checkUpkeep("0x");
+    const pid = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], performData)[0];
+    expect(pid).to.equal(1n);
+  });
+
+  it("M-01: مركز وحيد مستحق بلا رصيد كافٍ → checkUpkeep=false (لا دوران فارغ)", async () => {
+    const ctx = await deploy();
+    const { m, usdc, buyer } = ctx;
+    const mAddr = await m.getAddress();
+    await openPosition(ctx); // autoPay=false — نفعّل يدوياً عبر عرض جديد؟ لا: نبني autoPay=true
+    // نستخدم المركز القياسي لكن autoPay=false لا يدخل الفرع أصلاً — نحتاج autoPay=true:
+    const { wbtc, seller, buyer2 } = ctx;
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await wbtc.connect(buyer2).approve(mAddr, BTC(50));
+    await usdc.connect(buyer2).approve(mAddr, U(2_000_000));
+    await m.connect(buyer2).buy(2, BTC(1), BTC(1.5), Q_BTC, 12, true); // مركز #2 autoPay
+    await time.increase(INTERVAL_N + 1);
+    await usdc.connect(buyer2).approve(mAddr, 0); // سماحية صفر
+    const [needed] = await m.checkUpkeep("0x");
+    expect(needed).to.equal(false); // المسدود لا يُرجَع — لا حرق LINK على revert مضمون
+  });
+
+  it("M-03: totalPendingETH يتتبع الاستحقاق وينقص عند السحب", async () => {
+    const { m, wbtc, usdc, seller, buyer, keeper, ethFeed } = await deploy();
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await m.connect(seller).createOffer(wbtcAddr, ethers.ZeroAddress, usdcAddr, BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await usdc.connect(buyer).approve(mAddr, U(2_000_000));
+    await m.connect(buyer).buy(1, BTC(1), 0, Q_BTC, 12, false, { value: E("30") });
+    await ethFeed.setAnswer(ETH_CRASH);
+    const data = ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [1]);
+    await m.connect(keeper).performUpkeep(data); // تصفية: seller+buyer يستحقان ETH عبر pull
+    const sp = await m.pendingETH(seller.address);
+    const bp = await m.pendingETH(buyer.address);
+    expect(sp + bp).to.equal(E("30"));                 // كامل الضمان صار التزامات pull
+    expect(await m.totalPendingETH()).to.equal(sp + bp); // العدّاد = مجموع الالتزامات
+    await m.connect(seller).withdrawETH();
+    expect(await m.totalPendingETH()).to.equal(bp);      // نقص بمقدار سحب البائع فقط
+  });
+
+  it("M-03: emergencyWithdraw لا يمسّ ETH المعلّق للمستخدمين", async () => {
+    const { m, wbtc, usdc, seller, buyer, keeper, ethFeed, owner } = await deploy();
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await m.connect(seller).createOffer(wbtcAddr, ethers.ZeroAddress, usdcAddr, BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await usdc.connect(buyer).approve(mAddr, U(2_000_000));
+    await m.connect(buyer).buy(1, BTC(1), 0, Q_BTC, 12, false, { value: E("30") });
+    await ethFeed.setAnswer(ETH_CRASH);
+    await m.connect(keeper).performUpkeep(ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [1]));
+    // كل الـ 30 ETH التزامات pull → الحر = 0
+    await m.pause();
+    await expect(m.emergencyWithdraw(ethers.ZeroAddress, owner.address, E("1")))
+      .to.be.revertedWithCustomError(m, "InsufficientFreeETH");
+    // والمستخدم يظل قادراً على السحب رغم الإيقاف (withdrawETH بلا whenNotPaused)
+    // (البائع هو صاحب المعلّق — الانهيار الكامل: الضمان كله ذهب له، refund المشتري = 0)
+    await m.connect(seller).withdrawETH();
+    expect(await m.totalPendingETH()).to.equal(await m.pendingETH(buyer.address));
+  });
+
+  it("M-03: emergencyWithdraw يسمح بالـ ETH الحر فقط (escrow بلا التزامات)", async () => {
+    const { m, usdc, wbtc, seller, owner } = await deploy();
+    const usdcAddr = await usdc.getAddress();
+    const wbtcAddr = await wbtc.getAddress(); // الضمان لا يكون ستابل (IsStablecoin)
+    // عرض ETH: 1 ETH داخل العقد كـ escrow — totalPendingETH=0 → حر=1
+    await m.connect(seller).createOffer(ethers.ZeroAddress, wbtcAddr, usdcAddr, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") });
+    await m.pause();
+    await expect(m.emergencyWithdraw(ethers.ZeroAddress, owner.address, E("2")))
+      .to.be.revertedWithCustomError(m, "InsufficientFreeETH"); // > الحر
+    await m.emergencyWithdraw(ethers.ZeroAddress, owner.address, E("1")); // = الحر → ينجح
+  });
+
+  it("M-03: guardian يستطيع pause فقط — لا unpause ولا غيرها", async () => {
+    const { m, stranger, buyer } = await deploy();
+    await expect(m.connect(stranger).pause())
+      .to.be.revertedWithCustomError(m, "NotAuthorized"); // قبل التعيين: غريب ممنوع
+    await m.setGuardian(stranger.address);
+    await m.connect(stranger).pause();                     // الحارس يوقف فوراً ✅
+    expect(await m.paused()).to.equal(true);
+    await expect(m.connect(stranger).unpause()).to.be.reverted;          // لا unpause
+    await expect(m.connect(stranger).setGuardian(buyer.address)).to.be.reverted; // لا إدارة
+    await m.unpause();                                     // المالك يعيد التشغيل
+    expect(await m.paused()).to.equal(false);
+  });
+
+  it("M-03: setGuardian للمالك فقط + يصدر GuardianSet", async () => {
+    const { m, owner, stranger, keeper } = await deploy();
+    await expect(m.connect(stranger).setGuardian(stranger.address)).to.be.reverted;
+    await expect(m.setGuardian(keeper.address))
+      .to.emit(m, "GuardianSet").withArgs(ethers.ZeroAddress, keeper.address);
+    expect(await m.guardian()).to.equal(keeper.address);
+    await expect(m.setGuardian(ethers.ZeroAddress)) // التعطيل جائز
+      .to.emit(m, "GuardianSet").withArgs(keeper.address, ethers.ZeroAddress);
+  });
+});
