@@ -163,6 +163,13 @@ contract MurabahaV6 is
     ///      الغاية: بعد نقل الملكية لـ Timelock 48h يبقى إيقاف الطوارئ فورياً عبر الـ Safe.
     address public guardian;
 
+    // ═══════════ Build 20: سقف الإطلاق المحروس — مُلحَق أخيراً (آمن للتخزين) ═══════════
+    /// @dev حدّ أقصى لحجم المركز الواحد بالـ USDC (6 dec). 0 = بلا حدّ.
+    uint256 public maxPositionValueUSDC;
+    /// @dev حدّ أقصى لعدد المراكز النشطة معاً. 0 = بلا حدّ.
+    ///      الخسارة القصوى في حادث ≈ maxPositionValueUSDC × maxActivePositions (حدّ محسوب مسبقاً).
+    uint256 public maxActivePositions;
+
     // ═══════════ Events ═══════════
 
     event TokenAdded(address indexed token, address indexed feed, uint8 decimals, bool isStablecoin);
@@ -184,6 +191,7 @@ contract MurabahaV6 is
     event AutoFeeCollected(uint256 indexed positionId, uint256 autoFee, bool isLiquidationFee); // FB-60
     event KeeperSet(address indexed oldKeeper, address indexed newKeeper);
     event GuardianSet(address indexed oldGuardian, address indexed newGuardian); // Build 18: M-03
+    event LaunchCapsSet(uint256 maxPositionValueUSDC, uint256 maxActivePositions); // Build 20
     event UpkeepFailed(uint256 indexed positionId, bytes reason);
     event EmergencyWithdrawn(address indexed token, address indexed to, uint256 amount);
 
@@ -500,6 +508,12 @@ contract MurabahaV6 is
         uint256 requiredValue       = MurabahaMath.requiredCollateralUSDC(totalPayable, o.collateralRatioBps);
         if (collateralValueUSDC < requiredValue)
             revert Errors.InsufficientCollateral(collateralValueUSDC, requiredValue);
+
+        // ── Build 20: سقف الإطلاق المحروس (يحدّ الخسارة القصوى قبل التدقيق المحترف) ──
+        if (maxPositionValueUSDC != 0 && totalPayable > maxPositionValueUSDC)
+            revert Errors.PositionExceedsCap(totalPayable, maxPositionValueUSDC);
+        if (maxActivePositions != 0 && _activePositionIds.length >= maxActivePositions)
+            revert Errors.ActivePositionsCapReached(maxActivePositions);
 
         // ── Effects ──
         o.saleAmount -= purchaseAmount;
@@ -885,6 +899,15 @@ contract MurabahaV6 is
     function setGuardian(address g) external onlyOwner {
         emit GuardianSet(guardian, g);
         guardian = g;
+    }
+
+    /// @notice Build 20: يضبط سقوف الإطلاق المحروس. 0 = بلا حدّ.
+    /// @param maxPosValueUSDC حدّ أقصى لحجم المركز الواحد (USDC 6 dec)
+    /// @param maxActivePos    حدّ أقصى لعدد المراكز النشطة معاً
+    function setLaunchCaps(uint256 maxPosValueUSDC, uint256 maxActivePos) external onlyOwner {
+        maxPositionValueUSDC = maxPosValueUSDC;
+        maxActivePositions   = maxActivePos;
+        emit LaunchCapsSet(maxPosValueUSDC, maxActivePos);
     }
 
     /// @notice H2: يضبط مغذّي L2 Sequencer Uptime (address(0) لتعطيل الفحص على الشبكات بلا sequencer)

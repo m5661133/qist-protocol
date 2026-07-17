@@ -1781,4 +1781,71 @@ describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحص
     await expect(m.setGuardian(ethers.ZeroAddress)) // التعطيل جائز
       .to.emit(m, "GuardianSet").withArgs(keeper.address, ethers.ZeroAddress);
   });
+
+  // ── Build 20: سقف الإطلاق المحروس ──────────────────────────────────
+  it("Build 20: الافتراضي بلا حدّ (0) — الشراء يعمل طبيعياً", async () => {
+    const ctx = await deploy();
+    expect(await ctx.m.maxPositionValueUSDC()).to.equal(0);
+    expect(await ctx.m.maxActivePositions()).to.equal(0);
+    await openPosition(ctx); // ينجح بلا قيود
+    expect((await ctx.m.getPosition(1)).state).to.equal(0);
+  });
+
+  it("Build 20: setLaunchCaps للمالك فقط + يصدر LaunchCapsSet", async () => {
+    const { m, stranger } = await deploy();
+    await expect(m.connect(stranger).setLaunchCaps(U(1000), 5)).to.be.reverted;
+    await expect(m.setLaunchCaps(U(1000), 5))
+      .to.emit(m, "LaunchCapsSet").withArgs(U(1000), 5);
+    expect(await m.maxPositionValueUSDC()).to.equal(U(1000));
+    expect(await m.maxActivePositions()).to.equal(5);
+  });
+
+  it("Build 20: مركز يتجاوز سقف الحجم يُرفض", async () => {
+    const ctx = await deploy();
+    const { m, wbtc, usdc, seller, buyer } = ctx;
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    // totalPayable لمركز BTC(1) بربح 10% ≈ 64,680 USDC (من ثابت M.totalPayable)
+    await m.setLaunchCaps(U(1000), 0); // سقف صغير جداً
+    await wbtc.connect(seller).approve(mAddr, BTC(100));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await wbtc.connect(buyer).approve(mAddr, BTC(50));
+    await usdc.connect(buyer).approve(mAddr, U(2_000_000));
+    await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false))
+      .to.be.revertedWithCustomError(m, "PositionExceedsCap");
+  });
+
+  it("Build 20: سقف عدد المراكز النشطة يُرفض عند بلوغه", async () => {
+    const ctx = await deploy();
+    const { m, wbtc, usdc, seller, buyer } = ctx;
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await m.setLaunchCaps(0, 1); // مركز نشط واحد فقط
+    await wbtc.connect(seller).approve(mAddr, BTC(100));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(5), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await wbtc.connect(buyer).approve(mAddr, BTC(50));
+    await usdc.connect(buyer).approve(mAddr, U(2_000_000));
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false); // #1 ينجح
+    await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)) // #2 يتجاوز السقف
+      .to.be.revertedWithCustomError(m, "ActivePositionsCapReached");
+  });
+
+  it("Build 20: رفع السقف يعيد السماح (إطلاق محروس ثم توسّع)", async () => {
+    const ctx = await deploy();
+    const { m, wbtc, usdc, seller, buyer } = ctx;
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    await m.setLaunchCaps(0, 1);
+    await wbtc.connect(seller).approve(mAddr, BTC(100));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(5), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await wbtc.connect(buyer).approve(mAddr, BTC(50));
+    await usdc.connect(buyer).approve(mAddr, U(2_000_000));
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false);
+    await m.setLaunchCaps(0, 3); // ارفع السقف بعد «التدقيق المحترف»
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false); // الآن ينجح
+    expect(await m.activePositionsCount()).to.equal(2);
+  });
 });

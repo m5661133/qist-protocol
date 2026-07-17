@@ -79,4 +79,10 @@ library Errors {
     // ── Build 19: تقييد صلاحية المالك على أموال المستخدمين ────────────────
     /// @notice محاولة سحب أصل حقيقي (ETH/USDC/cbBTC أو أي رمز مدعوم) — أموال المستخدمين محميّة
     error CannotWithdrawUserAsset();
+
+    // ── Build 20: سقف الإطلاق المحروس ────────────────────────────────────
+    /// @notice حجم المركز يتجاوز سقف الإطلاق المحروس (maxPositionValueUSDC)
+    error PositionExceedsCap(uint256 totalPayable, uint256 cap);
+    /// @notice عدد المراكز النشطة بلغ سقف الإطلاق المحروس (maxActivePositions)
+    error ActivePositionsCapReached(uint256 cap);
 }
