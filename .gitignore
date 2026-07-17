@@ -20,3 +20,7 @@ coverage/
 .claude/settings.local.json
 
 # ملاحظة: .openzeppelin/ يُحفظ عمداً (manifest الترقية الحرج لـ UUPS)
+
+# نسخ احتياطية — لا تُرفع
+contracts.zip
+*.tar.gz
