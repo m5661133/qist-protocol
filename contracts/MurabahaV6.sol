@@ -893,25 +893,27 @@ contract MurabahaV6 is
         emit SequencerFeedSet(feed);
     }
 
-    function emergencyWithdraw(address token, address to, uint256 amount)
+    /// @notice Build 19: استرجاع الرموز الغريبة فقط (airdrop / إرسال خاطئ لرمز آخر) → محفظة الرسوم.
+    /// @dev أموال المستخدمين (ETH + USDC + cbBTC + أي رمز مدعوم) محميّة رياضياً — المالك لا يقدر مسّها إطلاقاً.
+    ///      لا وجهة يختارها المالك (ثابتة = protocolTreasury) — [[D-056]].
+    ///      ETH محظور كلياً (address(0) مُسجَّل active)؛ usdc/wbtc محظوران صراحةً حتى لو أُزيل دعمهما (يسدّ ثغرة removeSupportedToken).
+    ///      ⚠️ نتيجة مقصودة: أي ETH يُرسَل خطأً (عبر receive) يُقفَل للأبد — لا يقدر المالك سحبه (أمان > استرجاع نادر).
+    function emergencyWithdraw(address token, uint256 amount)
         external
         onlyOwner
         whenPaused
         nonReentrant
     {
-        if (to == address(0) || amount == 0) revert Errors.InvalidParams();
-        if (token == address(0)) {
-            // Build 18 (M-03): لا يجوز مسّ ETH المستحق سحبه للمستخدمين (pull liabilities)
-            uint256 free = address(this).balance > totalPendingETH
-                ? address(this).balance - totalPendingETH
-                : 0;
-            if (amount > free) revert Errors.InsufficientFreeETH();
-            (bool ok,) = to.call{value: amount}("");
-            if (!ok) revert Errors.TransferFailed();
-        } else {
-            IERC20(token).safeTransfer(to, amount);
-        }
-        emit EmergencyWithdrawn(token, to, amount);
+        if (amount == 0) revert Errors.InvalidParams();
+        if (
+            token == address(0) ||
+            token == address(usdc) ||
+            token == address(wbtc) ||
+            tokenConfigs[token].active
+        ) revert Errors.CannotWithdrawUserAsset();
+
+        IERC20(token).safeTransfer(protocolTreasury, amount);
+        emit EmergencyWithdrawn(token, protocolTreasury, amount);
     }
 
     // ═══════════ دوال القراءة ═══════════

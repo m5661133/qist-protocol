@@ -1565,17 +1565,19 @@ describe("S — إصلاحات التحصين", () => {
       .to.be.revertedWithCustomError(ctx.m, "TokenNotSupported");
   });
 
-  it("emergencyWithdraw يعمل فقط أثناء الإيقاف", async () => {
-    const { m, owner, buyer } = await deploy();
+  it("emergencyWithdraw يعمل فقط أثناء الإيقاف (برمز غريب — D-056)", async () => {
+    const { m, owner } = await deploy(); // protocolTreasury = owner
     const mAddr = await m.getAddress();
-    await owner.sendTransaction({ to: mAddr, value: E("1") });
-    await expect(m.connect(owner).emergencyWithdraw(ethers.ZeroAddress, buyer.address, E("0.1")))
+    const foreign = await (await ethers.getContractFactory("MockUSDC")).deploy();
+    await foreign.mint(mAddr, U(100));
+    // غير موقوف → يُرفض ببوابة الإيقاف
+    await expect(m.connect(owner).emergencyWithdraw(await foreign.getAddress(), U(10)))
       .to.be.revertedWithCustomError(m, "ExpectedPause");
-
+    // موقوف → يسترجع الرمز الغريب لمحفظة الرسوم
     await m.connect(owner).pause();
-    const before = await ethers.provider.getBalance(buyer.address);
-    await m.connect(owner).emergencyWithdraw(ethers.ZeroAddress, buyer.address, E("0.1"));
-    expect(await ethers.provider.getBalance(buyer.address)).to.equal(before + E("0.1"));
+    const before = await foreign.balanceOf(owner.address);
+    await m.connect(owner).emergencyWithdraw(await foreign.getAddress(), U(10));
+    expect(await foreign.balanceOf(owner.address)).to.equal(before + U(10));
   });
 
   // ── M-01: فهرس المراكز النشطة (CODE-V4-1) ──────────────────────────
@@ -1706,37 +1708,55 @@ describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحص
     expect(await m.totalPendingETH()).to.equal(bp);      // نقص بمقدار سحب البائع فقط
   });
 
-  it("M-03: emergencyWithdraw لا يمسّ ETH المعلّق للمستخدمين", async () => {
-    const { m, wbtc, usdc, seller, buyer, keeper, ethFeed, owner } = await deploy();
-    const mAddr = await m.getAddress();
+  it("D-056: emergencyWithdraw يحظر ETH كلياً — حتى مع escrow حقيقي وأثناء الإيقاف", async () => {
+    const { m, wbtc, usdc, seller, owner } = await deploy();
     const wbtcAddr = await wbtc.getAddress();
     const usdcAddr = await usdc.getAddress();
-    await wbtc.connect(seller).approve(mAddr, BTC(1));
-    await m.connect(seller).createOffer(wbtcAddr, ethers.ZeroAddress, usdcAddr, BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false);
-    await usdc.connect(buyer).approve(mAddr, U(2_000_000));
-    await m.connect(buyer).buy(1, BTC(1), 0, Q_BTC, 12, false, { value: E("30") });
-    await ethFeed.setAnswer(ETH_CRASH);
-    await m.connect(keeper).performUpkeep(ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [1]));
-    // كل الـ 30 ETH التزامات pull → الحر = 0
-    await m.pause();
-    await expect(m.emergencyWithdraw(ethers.ZeroAddress, owner.address, E("1")))
-      .to.be.revertedWithCustomError(m, "InsufficientFreeETH");
-    // والمستخدم يظل قادراً على السحب رغم الإيقاف (withdrawETH بلا whenNotPaused)
-    // (البائع هو صاحب المعلّق — الانهيار الكامل: الضمان كله ذهب له، refund المشتري = 0)
-    await m.connect(seller).withdrawETH();
-    expect(await m.totalPendingETH()).to.equal(await m.pendingETH(buyer.address));
-  });
-
-  it("M-03: emergencyWithdraw يسمح بالـ ETH الحر فقط (escrow بلا التزامات)", async () => {
-    const { m, usdc, wbtc, seller, owner } = await deploy();
-    const usdcAddr = await usdc.getAddress();
-    const wbtcAddr = await wbtc.getAddress(); // الضمان لا يكون ستابل (IsStablecoin)
-    // عرض ETH: 1 ETH داخل العقد كـ escrow — totalPendingETH=0 → حر=1
+    // عرض ETH: 1 ETH escrow حقيقي داخل العقد
     await m.connect(seller).createOffer(ethers.ZeroAddress, wbtcAddr, usdcAddr, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") });
     await m.pause();
-    await expect(m.emergencyWithdraw(ethers.ZeroAddress, owner.address, E("2")))
-      .to.be.revertedWithCustomError(m, "InsufficientFreeETH"); // > الحر
-    await m.emergencyWithdraw(ethers.ZeroAddress, owner.address, E("1")); // = الحر → ينجح
+    // المالك لا يقدر مسّ ETH إطلاقاً — لا «فائض» ولا استثناء
+    await expect(m.emergencyWithdraw(ethers.ZeroAddress, E("1")))
+      .to.be.revertedWithCustomError(m, "CannotWithdrawUserAsset");
+    await expect(m.emergencyWithdraw(ethers.ZeroAddress, 1))
+      .to.be.revertedWithCustomError(m, "CannotWithdrawUserAsset");
+  });
+
+  it("D-056: emergencyWithdraw يحظر USDC و cbBTC (أصول المستخدمين)", async () => {
+    const { m, usdc, wbtc } = await deploy();
+    const mAddr = await m.getAddress();
+    // ضع رصيداً فعلياً من كل رمز داخل العقد
+    await usdc.mint(mAddr, U(1000));
+    await wbtc.mint(mAddr, BTC(1));
+    await m.pause();
+    await expect(m.emergencyWithdraw(await usdc.getAddress(), U(1)))
+      .to.be.revertedWithCustomError(m, "CannotWithdrawUserAsset");
+    await expect(m.emergencyWithdraw(await wbtc.getAddress(), 1))
+      .to.be.revertedWithCustomError(m, "CannotWithdrawUserAsset");
+  });
+
+  it("D-056: cbBTC يبقى محظوراً حتى بعد removeSupportedToken (سدّ ثغرة إزالة الدعم)", async () => {
+    const { m, wbtc } = await deploy();
+    const mAddr = await m.getAddress();
+    await wbtc.mint(mAddr, BTC(1));
+    await m.removeSupportedToken(await wbtc.getAddress()); // active=false الآن
+    await m.pause();
+    // رغم إزالة الدعم، الحظر الصريح على عنوان wbtc يمنع السحب
+    await expect(m.emergencyWithdraw(await wbtc.getAddress(), 1))
+      .to.be.revertedWithCustomError(m, "CannotWithdrawUserAsset");
+  });
+
+  it("D-056: emergencyWithdraw يسترجع رمزاً غريباً فقط → محفظة الرسوم", async () => {
+    const { m, owner } = await deploy(); // protocolTreasury = owner
+    const mAddr = await m.getAddress();
+    // رمز غريب (غير مسجّل) أُرسل بالخطأ للعقد
+    const foreign = await (await ethers.getContractFactory("MockUSDC")).deploy();
+    await foreign.mint(mAddr, U(500));
+    await m.pause();
+    const before = await foreign.balanceOf(owner.address); // owner = protocolTreasury
+    await expect(m.emergencyWithdraw(await foreign.getAddress(), U(500)))
+      .to.emit(m, "EmergencyWithdrawn").withArgs(await foreign.getAddress(), owner.address, U(500));
+    expect(await foreign.balanceOf(owner.address)).to.equal(before + U(500)); // ذهب لمحفظة الرسوم لا لعنوان يختاره
   });
 
   it("M-03: guardian يستطيع pause فقط — لا unpause ولا غيرها", async () => {

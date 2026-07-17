@@ -75,4 +75,8 @@ library Errors {
     // ── Build 18: M-03 ────────────────────────
     /// @notice سحب الطوارئ يتجاوز ETH الحر (الرصيد − التزامات pull المعلّقة)
     error InsufficientFreeETH();
+
+    // ── Build 19: تقييد صلاحية المالك على أموال المستخدمين ────────────────
+    /// @notice محاولة سحب أصل حقيقي (ETH/USDC/cbBTC أو أي رمز مدعوم) — أموال المستخدمين محميّة
+    error CannotWithdrawUserAsset();
 }
