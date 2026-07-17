@@ -183,6 +183,10 @@ The team wants a **trust-minimized** contract: the owner must never freeze or se
 - **Please verify:** completeness of this guard; that no other owner path can move user principal (aside from a malicious upgrade — see roadmap); and whether `receive() external payable {}` (L258) should be removed (it lets ETH accumulate that `emergencyWithdraw` now permanently locks — intended, but confirm).
 - Tests: `D-056:` cases in the suite (ETH/USDC/cbBTC blocked even with real escrow & when paused; removed-token still blocked; foreign token → treasury).
 
+### ✅ Implemented in code (Build 20 — committed, deploy before launch)
+
+**Guarded-launch caps** — `setLaunchCaps(maxPositionValueUSDC, maxActivePositions)` (owner). `_buy` reverts if a new position's `totalPayable` exceeds `maxPositionValueUSDC`, or if `_activePositionIds.length >= maxActivePositions`. Both default to `0` (unlimited) — dormant until set before a guarded launch. Purpose: bound max loss (≈ `maxPositionValueUSDC × maxActivePositions`) during the early low-audit-budget phase, raised after a professional audit. **Please review:** the cap points, whether escrowed offer inventory (seller-owned) should also be capped, and any bypass. Note: deployed impl is Build 19; Build 20 (dormant caps) will be deployed before launch.
+
 ### ⏳ Planned (post-audit) — please advise
 
 1. **Pause scope** — pause must **never trap user exits**: block only new entries (`createOffer`/`buy`/`increaseOffer`), never `payInstallment`/`earlyRepay*`/`withdrawExcessCollateral`/`liquidatePositionPublic`/`withdrawETH`. Please review current `whenNotPaused` placement and advise (note the tension: pausing liquidation may be desirable during an oracle emergency).
