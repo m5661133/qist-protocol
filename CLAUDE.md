@@ -106,9 +106,14 @@ ethers.parseUnits("100", 6)
 
 ```
 Proxy (لا يتغير أبداً): 0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5
-Implementation (Build 17, 2026-06-25): 0x5BE35625d652A35c38e3d8168fBB11DCF7ffbbE7
+Implementation (Build 19, 2026-07-16): 0xB775F07634aD5e673261eD5cE6a03924DC0A0816  ← النشط ✅
+  ⤷ D-056: emergencyWithdraw يحظر ETH/USDC/cbBTC/أي مدعوم (CannotWithdrawUserAsset) — المالك لا يمسّ أموال المستخدمين
+  ⤷ يسترجع الرموز الغريبة فقط → protocolTreasury (وجهة ثابتة) · verified ✅ · 139 اختبار · Safe nonce 7
+Implementation (Build 18, 2026-07-16): 0x99aD53759D0dffCC6b396831D40f96c86E2024C3  ← سابق
+  ⤷ M-01 (_canAutoPay) + M-03 (totalPendingETH + guardian=Safe)
+Implementation (Build 17, 2026-06-25): 0x5BE35625d652A35c38e3d8168fBB11DCF7ffbbE7  ← سابق
   ⤷ H1 (GRACE=3 أيام) + H2 (sequencer مفعّل) + M5 + caps + M-01 (فهرس نشط) + MAX_PROFIT 300%
-  ⤷ Basescan verified ✅ (2026-07-16): npx hardhat verify --network base <addr> — المفتاح في .env (Etherscan V2)
+  ⤷ Basescan verify: npx hardhat verify --network base <addr> — المفتاح في .env (Etherscan V2)
 Implementation السابق (Build 16): 0xdDE63f8B1B645051EB6e7f906C638B58F8c1DbCA
 USDC:   0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 cbBTC:  0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf  ← متغيّر العقد اسمه `wbtc` لكنه يشير لهذا. الواجهات تعرضه "cbBTC" (D-049). لا تُعد تسمية الـ storage.

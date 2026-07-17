@@ -2,7 +2,7 @@
 
 > **Prepared for an independent security auditor.** Everything needed to begin immediately: scope, architecture, threat model, trust assumptions, known findings, and the Islamic-finance invariants that make this protocol unusual. Please read §7 (Shariah invariants) — several "bugs" a generic auditor might flag are intentional and religiously required.
 
-**Prepared:** 2026-07-16 · **Commit for review:** `0e599d5` (Build 18) · **Language:** Solidity 0.8.22 (viaIR, optimizer 200, evm: paris)
+**Prepared:** 2026-07-16 · **Commit for review:** latest `main` (Build 19) · **Language:** Solidity 0.8.22 (viaIR, optimizer 200, evm: paris)
 
 ---
 
@@ -19,7 +19,7 @@ This is **not** a lending pool. There is no interest, no rehypothecation, no poo
 | Contract | Address | Notes |
 |----------|---------|-------|
 | **Proxy** (audit target, immutable) | `0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5` | ERC1967 UUPS, verified |
-| **Implementation** (Build 18) | `0x99aD53759D0dffCC6b396831D40f96c86E2024C3` | verified on Basescan |
+| **Implementation** (Build 19) | `0xB775F07634aD5e673261eD5cE6a03924DC0A0816` | verified on Basescan (active) |
 | **Owner** | `0x64D738021BAe4cb9a7fd82529C2F94f61d404064` | Gnosis Safe **2-of-3** |
 | **Guardian** (pause-only) | = Safe (above) | emergency `pause()` without timelock |
 | USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | payment token, 6 decimals |
