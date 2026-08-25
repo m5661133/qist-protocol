@@ -1746,6 +1746,25 @@ describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحص
       .to.be.revertedWithCustomError(m, "CannotWithdrawUserAsset");
   });
 
+  it("KRAIT-001 (Build 21): رمز ضمان رابع يبقى محظوراً بعد removeSupportedToken", async () => {
+    // الثغرة قبل الإصلاح: D-056 يثبّت ETH/usdc/wbtc بالاسم فقط، وأي رمز مدعوم آخر
+    // كان محميّاً بالعلم المتغيّر active → المالك يقدر removeSupportedToken(X) ثم emergencyWithdraw(X).
+    // الإصلاح: _everRegistered يفحص العضوية الدائمة في tokenList (لا يُحذف منها الرمز أبداً).
+    const { m, owner } = await deploy();
+    const mAddr = await m.getAddress();
+    // رمز ضمان رابع (مثل LINK) يُضاف كأصل مدعوم غير مستقر (يحتاج feed)
+    const link     = await (await ethers.getContractFactory("MockWBTC")).deploy();
+    const linkFeed = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
+    await m.connect(owner).addSupportedToken(await link.getAddress(), await linkFeed.getAddress(), 8, false);
+    // ضمان مستخدمين حقيقي مقفل داخل العقد
+    await link.mint(mAddr, BTC(5));
+    // محاولة الالتفاف: إزالة الدعم (active=false) ثم السحب أثناء الإيقاف
+    await m.connect(owner).removeSupportedToken(await link.getAddress());
+    await m.pause();
+    await expect(m.connect(owner).emergencyWithdraw(await link.getAddress(), BTC(5)))
+      .to.be.revertedWithCustomError(m, "CannotWithdrawUserAsset");
+  });
+
   it("D-056: emergencyWithdraw يسترجع رمزاً غريباً فقط → محفظة الرسوم", async () => {
     const { m, owner } = await deploy(); // protocolTreasury = owner
     const mAddr = await m.getAddress();

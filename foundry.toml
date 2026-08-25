@@ -1,0 +1,25 @@
+# Foundry — طبقة fuzz + invariant فوق مشروع Hardhat القائم (لا تحلّ محله).
+# العقد يُجمَّع بنفس إعدادات hardhat.config.ts: solc 0.8.22 · viaIR · optimizer 200 · paris.
+[profile.default]
+src = "contracts"
+out = "out"
+libs = ["node_modules", "lib"]
+test = "test/foundry"
+cache_path = "cache_forge"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+evm_version = "paris"
+solc = "0.8.22"
+remappings = [
+    "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+    "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
+    "forge-std/=lib/forge-std/src/",
+]
+
+# حملة الثوابت — عدد المسارات × عمق كل مسار.
+[invariant]
+runs = 150
+depth = 120
+fail_on_revert = false
+call_override = false

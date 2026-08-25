@@ -1,0 +1,49 @@
+{
+  "network": "base",
+  "chainId": 8453,
+  "proxy": "0x47Ce614E8D1EBd19d66f254c062bDDEA2F3e3103",
+  "owner": "0xef6F0C01C1f61a798923Baf57eb515f45d68c2e4",
+  "note": "سجل نقاط الرجوع. للرجوع: npx hardhat run scripts/rollback-btc-escrow.ts --network base مع IMPL=<العنوان>. الرجوع آمن فقط إن كان تخطيط التخزين متوافقاً — انظر حقل storageChange في كل قيد.",
+  "history": [
+    {
+      "implementation": "0x80CC4AC7Bf64d35F47aa35747185e8fDB82E415D",
+      "date": "2026-07-25",
+      "label": "v1 — دورة حياة أصلية (15 حالة، توقيع منسّق ذرّي)",
+      "storageChange": "initial",
+      "rollbackSafe": false,
+      "why": "هيكل struct Deal مختلف عن v2 — الرجوع إليه يُفسد قراءة الصفقات المكتوبة بعد v2"
+    },
+    {
+      "implementation": "0xeE715145A233603BdF069E3b76aa390A527a1624",
+      "date": "2026-08-02",
+      "label": "v2 — سوق ثنائي الاتجاه بثلاث خطوات (13 حالة)",
+      "storageChange": "struct Deal أُعيد هيكلته (كان آمناً لأن nextDealId==1 وقتها)",
+      "rollbackSafe": true,
+      "why": "نقطة الرجوع الحالية لأي ترقية لاحقة لا تمسّ التخزين"
+    },
+    {
+      "implementation": "0x4527DaFcF8b6B5f83Bd732a1b2D7c97308152adC",
+      "date": "2026-08-08",
+      "label": "رفع أقصى أجل من سنة إلى 4 سنوات (MAX_PAYMENT_INTERVAL 365→1461 يوماً)",
+      "storageChange": "لا تغيير في التخزين",
+      "rollbackSafe": true,
+      "why": "تغيير منطق/ثوابت فقط — الرجوع آمن"
+    },
+    {
+      "implementation": "0x6511f2D49FAf8008091E646C24271961231a5dAD",
+      "date": "2026-08-12",
+      "label": "BE-12 حارس تكرار مفاتيح Bitcoin + رفض انتحال مفتاح قسط",
+      "storageChange": "لا تغيير في التخزين",
+      "rollbackSafe": true,
+      "why": "تغيير منطق/ثوابت فقط — الرجوع آمن"
+    },
+    {
+      "implementation": "0x0604A1Bf3f8725062fCB67323b65c4585F3b717F",
+      "date": "2026-08-13",
+      "label": "BE-13 سقف LTV الابتدائي 80% → 87% (نسبة الضمان عرضاً وطلباً)",
+      "storageChange": "لا تغيير في التخزين",
+      "rollbackSafe": true,
+      "why": "تغيير منطق/ثوابت فقط — الرجوع آمن"
+    }
+  ]
+}

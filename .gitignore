@@ -24,3 +24,6 @@ coverage/
 # نسخ احتياطية — لا تُرفع
 contracts.zip
 *.tar.gz
+lib/
+out/
+cache_forge/

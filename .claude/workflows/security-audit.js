@@ -9,7 +9,7 @@ export const meta = {
   ],
 }
 
-const PROJ = '/Users/macmjls/Qist/مهم/العقد الذكي'
+const PROJ = '/Users/macmjls_1/Desktop/مشاريع/العقد الذكي'
 
 const DIMENSIONS = [
   { key: 'upgrade-access', prompt: `دقّق ${PROJ}/contracts/MurabahaV6.sol — فئتان فقط: أمان الترقية (UUPS: __gap، _authorizeUpgrade، initializer/reinitializer، تخطيط التخزين) والتحكم بالصلاحيات (كل دالة حسّاسة محميّة). اقرأ فقط، لا تُعدّل.` },

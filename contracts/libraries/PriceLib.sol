@@ -48,6 +48,7 @@ library PriceLib {
      * @param sequencer مغذّي Chainlink L2 Sequencer Uptime
      */
     function requireSequencerUp(IChainlinkFeed sequencer) internal view {
+        // slither-disable-next-line unused-return — roundId/updatedAt/answeredInRound غير مطلوبة؛ up/startedAt فقط
         (, int256 up, uint256 startedAt,,) = sequencer.latestRoundData();
         if (up != 0 || startedAt == 0) revert Errors.SequencerDown(); // startedAt==0 = جولة غير صالحة
         if (block.timestamp - startedAt <= SEQUENCER_GRACE_PERIOD) revert Errors.SequencerGracePeriodNotOver();

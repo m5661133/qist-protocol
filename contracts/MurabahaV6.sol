@@ -194,6 +194,10 @@ contract MurabahaV6 is
     event LaunchCapsSet(uint256 maxPositionValueUSDC, uint256 maxActivePositions); // Build 20
     event UpkeepFailed(uint256 indexed positionId, bytes reason);
     event EmergencyWithdrawn(address indexed token, address indexed to, uint256 amount);
+    event ProtocolFeeSet(uint16 oldBps, uint16 newBps);            // شفافية إدارية (Slither/Aderyn L-9)
+    event BrokerageFeeSet(uint16 oldBps, uint16 newBps);           // شفافية إدارية (Slither/Aderyn L-9)
+    event BrokerTreasurySet(address indexed oldTreasury, address indexed newTreasury);   // شفافية إدارية (L-9)
+    event ProtocolTreasurySet(address indexed oldTreasury, address indexed newTreasury); // شفافية إدارية (L-9)
 
     // ═══════════ Modifiers ═══════════
 
@@ -868,18 +872,22 @@ contract MurabahaV6 is
 
     function setProtocolFee(uint16 bps) external onlyOwner {
         if (bps > MAX_PROTOCOL_FEE_BPS) revert Errors.InvalidParams();
+        emit ProtocolFeeSet(protocolFeeBps, bps);
         protocolFeeBps = bps;
     }
     function setBrokerageFee(uint16 bps) external onlyOwner {
         if (bps > MAX_BROKERAGE_FEE_BPS) revert Errors.InvalidParams();
+        emit BrokerageFeeSet(brokerageFeeBps, bps);
         brokerageFeeBps = bps;
     }
     function setBrokerTreasury(address r) external onlyOwner {
         if (r == address(0)) revert Errors.InvalidParams();
+        emit BrokerTreasurySet(brokerTreasury, r);
         brokerTreasury = r;
     }
     function setProtocolTreasury(address r) external onlyOwner {
         if (r == address(0)) revert Errors.InvalidParams();
+        emit ProtocolTreasurySet(protocolTreasury, r);
         protocolTreasury = r;
     }
     function setKeeper(address k) external onlyOwner {
@@ -916,10 +924,22 @@ contract MurabahaV6 is
         emit SequencerFeedSet(feed);
     }
 
+    /// @dev Build 21 (KRAIT-001): هل سُجِّل هذا الرمز يوماً كأصل مدعوم؟
+    ///      tokenList يحتفظ بكل رمز سُجِّل ولا يُحذف منه أبداً (removeSupportedToken يطفئ active فقط) —
+    ///      فالفحص دائم ولا يتأثّر بإطفاء الدعم. n صغير جداً (رموز معدودة) + الدالة onlyOwner/whenPaused نادرة.
+    function _everRegistered(address token) internal view returns (bool) {
+        uint256 len = tokenList.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (tokenList[i] == token) return true;
+        }
+        return false;
+    }
+
     /// @notice Build 19: استرجاع الرموز الغريبة فقط (airdrop / إرسال خاطئ لرمز آخر) → محفظة الرسوم.
     /// @dev أموال المستخدمين (ETH + USDC + cbBTC + أي رمز مدعوم) محميّة رياضياً — المالك لا يقدر مسّها إطلاقاً.
     ///      لا وجهة يختارها المالك (ثابتة = protocolTreasury) — [[D-056]].
-    ///      ETH محظور كلياً (address(0) مُسجَّل active)؛ usdc/wbtc محظوران صراحةً حتى لو أُزيل دعمهما (يسدّ ثغرة removeSupportedToken).
+    ///      Build 21 (KRAIT-001): الحماية الآن لكل رمز سُجِّل يوماً (عبر _everRegistered/tokenList) لا الثلاثة المثبّتة فقط —
+    ///      يسدّ ثغرة كان يفتحها اعتماد الحارس على tokenConfigs[token].active المتغيّر: removeSupportedToken(X) ثم emergencyWithdraw(X).
     ///      ⚠️ نتيجة مقصودة: أي ETH يُرسَل خطأً (عبر receive) يُقفَل للأبد — لا يقدر المالك سحبه (أمان > استرجاع نادر).
     function emergencyWithdraw(address token, uint256 amount)
         external
@@ -932,7 +952,7 @@ contract MurabahaV6 is
             token == address(0) ||
             token == address(usdc) ||
             token == address(wbtc) ||
-            tokenConfigs[token].active
+            _everRegistered(token)
         ) revert Errors.CannotWithdrawUserAsset();
 
         IERC20(token).safeTransfer(protocolTreasury, amount);

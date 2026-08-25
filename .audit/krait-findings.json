@@ -1,0 +1,14 @@
+[
+  {
+    "id": "KRAIT-001",
+    "title": "emergencyWithdraw D-056 guard is incomplete — owner can seize de-listed supported collateral",
+    "severity": "Medium",
+    "file": "contracts/MurabahaV6.sol",
+    "lines": "932-948 (guard 939-944); enabler removeSupportedToken 294-298",
+    "category": "Access control / trust-minimization guard completeness",
+    "description": "emergencyWithdraw (D-056) is meant to make user assets unseizable by the owner. It hardcodes blocks for address(0), usdc, and wbtc, and otherwise relies on tokenConfigs[token].active to block 'any supported token'. The hardcoded checks close the remove-support-then-withdraw bypass ONLY for usdc/wbtc. Any other supported collateral/sale token (e.g. LINK, in the protocol's Base config, or any future token) is protected solely by the owner-mutable `active` flag, so the owner can removeSupportedToken(token) to flip active=false and then emergencyWithdraw it.",
+    "impact": "A malicious/compromised owner (Safe 2-of-3) can seize all escrowed collateral of any supported token other than ETH/USDC/cbBTC, contradicting the advertised 'user assets unseizable' guarantee (D-056). Affected positions later revert on collateral return (_deliverToken insufficient balance), permanently losing user collateral. No timelock is deployed and pause is instant while payInstallment/earlyRepay*/withdrawExcessCollateral are whenNotPaused, so buyers have no on-chain recourse once the sequence begins.",
+    "exploit_trace": "0) LINK supported as collateral (active=true); buyers hold LINK collateral; emergencyWithdraw(LINK) reverts (protected). 1) Owner calls removeSupportedToken(LINK) -> tokenConfigs[LINK].active=false. 2) Owner/guardian calls pause() (instant, no timelock). 3) Owner calls emergencyWithdraw(LINK, balance): token!=0, !=usdc, !=wbtc, active==false -> guard FALSE -> no revert -> LINK.safeTransfer(protocolTreasury, balance). 4) All escrowed LINK is seized; buyers cannot rescue (paused blocks their exits); positions revert on collateral return.",
+    "recommendation": "Do not use the owner-mutable `active` flag as the sole protection. Reject any token ever registered as a supported asset (persistent _registered flag set in _registerToken, never cleared) plus address(0), regardless of `active`; or track per-token user liabilities and allow withdrawing only a true surplus. Additionally deploy the prepared 48h QistTimelock above the Safe to make such sequences announced."
+  }
+]
