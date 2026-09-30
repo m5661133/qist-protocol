@@ -1565,6 +1565,30 @@ describe("S — إصلاحات التحصين", () => {
       .to.be.revertedWithCustomError(ctx.m, "TokenNotSupported");
   });
 
+  // GPT-01: كان `removeSupportedToken` يَعِد في تعليقه بأن «العقود القائمة لا تتأثر»،
+  // بينما `active=false` يجعل `_tokenPriceUSDC` يرفض بـTokenNotSupported — فتتعطّل تسوية
+  // المركز القائم وتنكسر جولة `checkUpkeep` كلها عند أوّل مركز برمز مُطفأ. التسعير الآن
+  // يفحص **التسجيل** لا `active`.
+  it("تعطيل رمز لا يعطّل تسعير مركز قائم ولا جولة الأتمتة (GPT-01)", async () => {
+    const ctx = await deploy();
+    await openPosition(ctx);
+    await ctx.m.connect(ctx.owner).removeSupportedToken(await ctx.wbtc.getAddress());
+
+    // التسعير يعمل → فحص الأتمتة يكمل بلا revert
+    await expect(ctx.m.checkUpkeep.staticCall("0x")).to.not.be.reverted;
+
+    // وصحّة المركز وقابلية تصفيته تُقرآن (كلاهما يمرّ بالتسعير) بدل أن يرفضا
+    await expect(ctx.m.healthFactor(1)).to.not.be.reverted;
+    await expect(ctx.m.isLiquidatable(1)).to.not.be.reverted;
+
+    // وفي المقابل: لا التزامات جديدة بالرمز المُطفأ
+    await expect(
+      ctx.m.connect(ctx.seller).createOffer(
+        await ctx.wbtc.getAddress(), await ctx.wbtc.getAddress(), await ctx.usdc.getAddress(),
+        BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false)
+    ).to.be.revertedWithCustomError(ctx.m, "TokenNotSupported");
+  });
+
   it("emergencyWithdraw يعمل فقط أثناء الإيقاف (برمز غريب — D-056)", async () => {
     const { m, owner } = await deploy(); // protocolTreasury = owner
     const mAddr = await m.getAddress();

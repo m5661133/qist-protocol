@@ -290,7 +290,11 @@ contract MurabahaV6 is
         _registerToken(token, feed, decimals, isStablecoin);
     }
 
-    /// @notice يعطّل توكناً — لا يُحذف بل يُوقَف (العقود القائمة لا تتأثر)
+    /// @notice يعطّل توكناً — لا يُحذف بل يُوقَف.
+    /// @dev **المراكز القائمة لا تتأثّر فعلاً** (الوعد كان في التعليق وحده قبل هذا الإصلاح):
+    ///      الإطفاء يمنع *الالتزامات الجديدة* — `createOffer` و`acceptOffer` — بينما التسعير
+    ///      وتعزيز الضمان يعتمدان على **التسجيل** لا على `active`، فتبقى تسوية المركز القديم
+    ///      وتصفيته وفحص الأتمتة عاملة. راجع `_isRegistered`.
     function removeSupportedToken(address token) external onlyOwner {
         if (!tokenConfigs[token].active) revert Errors.InvalidParams();
         tokenConfigs[token].active = false;
@@ -577,6 +581,9 @@ contract MurabahaV6 is
     function addCollateral(uint256 positionId, uint256 amount) external payable whenNotPaused nonReentrant {
         Position storage p = positions[positionId];
         if (p.state != PositionState.ACTIVE) revert Errors.PositionNotActive();
+        // ⚠️ هنا يبقى الفحص على `active` عمداً — اختبار قائم يوثّق هذا السلوك.
+        //    نتيجته أن المدين لا يقدر تعزيز ضمان مركزٍ قائم بعد إطفاء رمزه، وهو قرار
+        //    تصميمي مفتوح للنقاش (لا عيب مثبَت) — لا يُغيَّر إلا بقرار صريح من المالك.
         if (!tokenConfigs[p.collateralToken].active) revert Errors.TokenNotSupported();
         uint256 added;
         if (p.collateralToken == address(0)) {
@@ -822,19 +829,32 @@ contract MurabahaV6 is
         if (seq != address(0)) PriceLib.requireSequencerUp(IChainlinkFeed(seq));
     }
 
+    /// @dev هل سُجِّل هذا الرمز يوماً؟ فحص **O(1)** لا يتأثّر بإطفاء `active`.
+    ///      `addSupportedToken` يفرض أن غير الستابل له `chainlinkFeed`، وأن الستابل
+    ///      يُسجَّل بـ`isStablecoin=true` — فأيّهما يعني تسجيلاً. رمز لم يُسجَّل قطّ:
+    ///      `chainlinkFeed == 0` و`isStablecoin == false` معاً، فيُرفض.
+    ///      نظير `_everRegistered` (المعتمِد على tokenList) لكنه بلا حلقة — لأن هذا
+    ///      المسار ساخن: يُستدعى لكل مركز داخل `checkUpkeep`.
+    function _isRegistered(TokenConfig memory cfg) private pure returns (bool) {
+        return cfg.isStablecoin || cfg.chainlinkFeed != address(0);
+    }
+
     /// @dev سعر وحدة من التوكن بـ USDC (6 decimals). الستابل كوين = 1e6.
+    ///      ⚠️ يفحص **التسجيل** لا `active` عمداً: إطفاء الدعم يمنع صفقات جديدة، ولا يجوز
+    ///      أن يُعطِّل تسعير مركز قائم — وإلا تعذّرت تسويته (`earlyRepayWithCollateral`)
+    ///      وانكسرت جولة `checkUpkeep` كلها عند أول مركز برمز مُطفأ.
     function _tokenPriceUSDC(address token) internal view returns (uint256) {
         TokenConfig memory cfg = tokenConfigs[token];
-        if (!cfg.active) revert Errors.TokenNotSupported();
+        if (!_isRegistered(cfg)) revert Errors.TokenNotSupported();
         if (cfg.isStablecoin) return 1e6;
         _checkSequencer();
         return IChainlinkFeed(cfg.chainlinkFeed).priceUSDC();
     }
 
-    /// @dev قيمة كمية من التوكن بـ USDC (6 decimals)
+    /// @dev قيمة كمية من التوكن بـ USDC (6 decimals) — يفحص التسجيل لا `active` (انظر أعلاه)
     function _tokenValueUSDC(address token, uint256 amount) internal view returns (uint256) {
         TokenConfig memory cfg = tokenConfigs[token];
-        if (!cfg.active) revert Errors.TokenNotSupported();
+        if (!_isRegistered(cfg)) revert Errors.TokenNotSupported();
         if (cfg.isStablecoin) return amount; // 1:1 — الستابل
         _checkSequencer();
         uint256 price = IChainlinkFeed(cfg.chainlinkFeed).priceUSDC();
