@@ -54,22 +54,26 @@ library MurabahaMath {
 
         // القسط الأخير يأخذ كل المتبقي (يصحّح فرق التقريب المتراكم)
         if (paidInstallments + 1 == totalInstallments) {
-            // ضرب أولاً ثم قسمة — يتجنب divide-before-multiply
-            return totalPayable - (totalPayable * paidInstallments / totalInstallments);
+            return remainingDebt(totalPayable, totalInstallments, paidInstallments);
         }
         return totalPayable / totalInstallments;
     }
 
     /**
-     * @notice الدين المتبقي على المركز
+     * @notice الدين المتبقي على المركز = الثمن − ما حُصِّل فعلاً
+     * @dev GPT-14: كل قسط قبل الأخير = floor(T/N) بالضبط، فالمُحصَّل بعد k قسطاً
+     *      = k·floor(T/N). الصيغة السابقة T − floor(T·k/N) تطرح أكثر من المُحصَّل
+     *      (حتى N−2 وحدة) فيسقط هذا الفرق من القسط الأخير والسداد المبكر ويستلم
+     *      البائع أقل من الثمن. القسمة قبل الضرب هنا **مقصودة**: هي قاعدة تقريب
+     *      الأقساط نفسها، لا فقدان دقة.
      */
     function remainingDebt(
         uint256 totalPayable,
         uint8 totalInstallments,
         uint8 paidInstallments
     ) internal pure returns (uint256) {
-        // ضرب أولاً ثم قسمة — يتجنب divide-before-multiply
-        return totalPayable - (totalPayable * paidInstallments / totalInstallments);
+        if (paidInstallments >= totalInstallments) return 0;
+        return totalPayable - regularInstallment(totalPayable, totalInstallments) * paidInstallments;
     }
 
     /**

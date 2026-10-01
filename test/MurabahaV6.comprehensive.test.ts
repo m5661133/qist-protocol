@@ -1624,6 +1624,55 @@ describe("S — إصلاحات التحصين", () => {
       .to.be.revertedWithCustomError(m, "TokenNotSupported");
   });
 
+  // GPT-13: مغذٍّ متقادم لرمز مركزٍ واحد كان يُسقط checkUpkeep كلها بـStalePrice
+  // فتتوقف أتمتة كل المراكز السليمة بعده.
+  it("مغذٍّ متقادم لمركز لا يعطّل أتمتة بقية المراكز، ولا تصفية على سعر قديم (GPT-13)", async () => {
+    const ctx = await deploy();
+    const { m, usdc, btcFeed, seller, buyer2 } = ctx;
+    await openPosition(ctx); // #1 — cbBTC/cbBTC، يسبق في الفهرس
+    await m.connect(seller).createOffer(ethers.ZeroAddress, ethers.ZeroAddress, await usdc.getAddress(), 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("2") });
+    await usdc.connect(buyer2).approve(await m.getAddress(), U(2_000_000));
+    await m.connect(buyer2).buy(2, E("1"), 0, Q_ETH, 12, true, { value: E("2") }); // #2 — ETH، autoPay
+    await time.increase(INTERVAL_N); // قسط #2 مستحق
+    await btcFeed.setStale(7200);    // مغذّي BTC متقادم ساعتين
+
+    const [needed, data] = await m.checkUpkeep.staticCall("0x");
+    expect(needed).to.equal(true);
+    expect(data).to.equal(ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [2]));
+
+    // المركز المتخطّى لا يُصفّى على سعر متقادم
+    await expect(m.liquidatePositionPublic(1)).to.be.revertedWithCustomError(m, "StalePrice");
+  });
+
+  // GPT-14: الأقساط العادية floor(T/N) والمتبقي كان T − floor(T·k/N) ⇒ يسقط جزء من
+  // الكسور بدل أن يُحصَّل في القسط الأخير، فيستلم البائع أقل من الثمن.
+  it("مجموع الأقساط = الثمن بالضبط، والمتبقي = الثمن − المُحصَّل فعلاً (GPT-14)", async () => {
+    const ctx = await deploy();
+    const { m, usdc, seller, buyer } = ctx;
+    const N = 13;
+    await openPosition(ctx, { inst: N });
+    const T: bigint = (await m.positions(1)).totalPayable;
+    expect(T % BigInt(N)).to.be.greaterThan(1n); // وإلا لا يظهر الفرق
+    const before = await usdc.balanceOf(seller.address);
+    for (let k = 0; k < N; k++) {
+      const collected = (await usdc.balanceOf(seller.address)) - before;
+      expect(await m.getRemainingDebt(1)).to.equal(T - collected);
+      await m.connect(buyer).payInstallment(1);
+    }
+    expect((await usdc.balanceOf(seller.address)) - before).to.equal(T);
+  });
+
+  it("earlyRepayCash بعد عدة أقساط يُكمل الثمن بالضبط (GPT-14)", async () => {
+    const ctx = await deploy();
+    const { m, usdc, seller, buyer } = ctx;
+    await openPosition(ctx, { inst: 13 });
+    const T: bigint = (await m.positions(1)).totalPayable;
+    const before = await usdc.balanceOf(seller.address);
+    for (let k = 0; k < 5; k++) await m.connect(buyer).payInstallment(1);
+    await m.connect(buyer).earlyRepayCash(1);
+    expect((await usdc.balanceOf(seller.address)) - before).to.equal(T);
+  });
+
   it("emergencyWithdraw يعمل فقط أثناء الإيقاف (برمز غريب — D-056)", async () => {
     const { m, owner } = await deploy(); // protocolTreasury = owner
     const mAddr = await m.getAddress();

@@ -745,7 +745,16 @@ contract MurabahaV6 is
         for (uint256 i = 0; i < len; i++) {
             uint256 pid = _activePositionIds[i];
             Position storage p = positions[pid];
-            (bool liq,) = isLiquidatable(pid);
+            // GPT-13: تسعير مركزٍ واحد قد يرفض (مغذٍّ متقادم/Sequencer) — كان يُسقط الجولة
+            // كلها فتتوقف أتمتة كل المراكز السليمة. نعزله ونتخطّى المركز: لا يُقترَح
+            // للتنفيذ (وإلا تكرّر فشله في performUpkeep وحجب الطابور)، والتصفية الفعلية
+            // ما زالت ترفض السعر القديم في كل مسار. يُلتقَط حين يعود مغذّيه.
+            bool liq;
+            try this.isLiquidatable(pid) returns (bool l, string memory) {
+                liq = l;
+            } catch {
+                continue;
+            }
             // FB-60: التصفية التلقائية فقط إذا فعّلها البائع
             if (liq && offers[p.offerId].autoLiquidateEnabled)
                 return (true, abi.encode(pid));
