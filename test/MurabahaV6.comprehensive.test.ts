@@ -1589,6 +1589,41 @@ describe("S — إصلاحات التحصين", () => {
     ).to.be.revertedWithCustomError(ctx.m, "TokenNotSupported");
   });
 
+  // GPT-09: إصلاح GPT-01 نقل التسعير إلى فحص التسجيل، و`_buy` لا يفحص `active` —
+  // فصار الشراء من عرضٍ أُنشئ قبل التعطيل يفتح مركزاً جديداً بالرمز المُطفأ.
+  // كل رمز من الثلاثة يُختبر منفرداً: البيع، الضمان، الدفع.
+  it("تعطيل رمز البيع يمنع الشراء من عرض قائم (GPT-09)", async () => {
+    const { m, wbtc, usdc, owner, seller, buyer } = await deploy();
+    const mAddr = await m.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await m.connect(seller).createOffer(await wbtc.getAddress(), ethers.ZeroAddress, await usdc.getAddress(), BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await m.connect(owner).removeSupportedToken(await wbtc.getAddress());
+    await expect(m.connect(buyer).buy(1, BTC(1), 0, Q_BTC, 12, false, { value: E("40") }))
+      .to.be.revertedWithCustomError(m, "TokenNotSupported");
+  });
+
+  it("تعطيل رمز الضمان يمنع الشراء من عرض قائم (GPT-09)", async () => {
+    const { m, wbtc, usdc, owner, seller, buyer } = await deploy();
+    const mAddr = await m.getAddress();
+    await m.connect(seller).createOffer(ethers.ZeroAddress, await wbtc.getAddress(), await usdc.getAddress(), 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") });
+    await m.connect(owner).removeSupportedToken(await wbtc.getAddress());
+    await wbtc.connect(buyer).approve(mAddr, BTC(1));
+    await expect(m.connect(buyer).buy(1, E("1"), BTC(1), Q_ETH, 12, false))
+      .to.be.revertedWithCustomError(m, "TokenNotSupported");
+  });
+
+  it("تعطيل رمز الدفع يمنع الشراء من عرض قائم (GPT-09)", async () => {
+    const { m, wbtc, usdc, owner, seller, buyer } = await deploy();
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, await usdc.getAddress(), BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, false);
+    await m.connect(owner).removeSupportedToken(await usdc.getAddress());
+    await wbtc.connect(buyer).approve(mAddr, BTC(2));
+    await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false))
+      .to.be.revertedWithCustomError(m, "TokenNotSupported");
+  });
+
   it("emergencyWithdraw يعمل فقط أثناء الإيقاف (برمز غريب — D-056)", async () => {
     const { m, owner } = await deploy(); // protocolTreasury = owner
     const mAddr = await m.getAddress();

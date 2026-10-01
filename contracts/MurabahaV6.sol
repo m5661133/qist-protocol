@@ -292,9 +292,9 @@ contract MurabahaV6 is
 
     /// @notice يعطّل توكناً — لا يُحذف بل يُوقَف.
     /// @dev **المراكز القائمة لا تتأثّر فعلاً** (الوعد كان في التعليق وحده قبل هذا الإصلاح):
-    ///      الإطفاء يمنع *الالتزامات الجديدة* — `createOffer` و`acceptOffer` — بينما التسعير
-    ///      وتعزيز الضمان يعتمدان على **التسجيل** لا على `active`، فتبقى تسوية المركز القديم
-    ///      وتصفيته وفحص الأتمتة عاملة. راجع `_isRegistered`.
+    ///      الإطفاء يمنع *الالتزامات الجديدة* — `createOffer` و`buy` (GPT-09) — بينما التسعير
+    ///      يعتمد على **التسجيل** لا على `active`، فتبقى تسوية المركز القديم وتصفيته وفحص
+    ///      الأتمتة عاملة. راجع `_isRegistered`. أما `addCollateral` فيبقى محكوماً بـ`active`.
     function removeSupportedToken(address token) external onlyOwner {
         if (!tokenConfigs[token].active) revert Errors.InvalidParams();
         tokenConfigs[token].active = false;
@@ -476,6 +476,12 @@ contract MurabahaV6 is
     ) internal returns (uint256 positionId) {
         Offer storage o = offers[offerId];
         if (o.state != OfferState.ACTIVE)  revert Errors.OfferNotActive();
+
+        // GPT-09: الشراء التزام جديد ⇒ يُحكَم بـ`active` كـ`createOffer`. التسعير بعده يفحص
+        // التسجيل وحده (GPT-01)، فبدون هذا يفتح عرضٌ سابق مركزاً جديداً برمزٍ مُطفأ.
+        if (!tokenConfigs[o.saleToken].active)       revert Errors.TokenNotSupported();
+        if (!tokenConfigs[o.collateralToken].active) revert Errors.TokenNotSupported();
+        if (!tokenConfigs[o.paymentToken].active)    revert Errors.TokenNotSupported();
 
         // ═══════════ FB-31: حماية ضد Self-Buy (شرعي + أمني) ═══════════
         // المرابحة عقد بين طرفين مختلفين. شراء البائع لنفسه = بيع العينة (محرّم).
