@@ -18,8 +18,8 @@ import {
  * تُفعَّل بإزالة `.skip` بعد التنفيذ والمراجعة.
  */
 
-const GLOBAL = U(10_000);
-const COMMIT = U(8_500);   // الاحتياطي = 1,500 (القيمة النهائية بعد #8)
+const GLOBAL = U(20_000);
+const COMMIT = U(17_000);  // الاحتياطي = 3,000 (قرار المالك: سقف 20,000)
 const Q_BTC = 60000n * 10n ** 6n;
 const Q_ETH = 3000n * 10n ** 6n;
 
@@ -38,17 +38,17 @@ describe.skip("GlobalCap v2 — سقف إجمالي صارم لكل أموال �
 
   it("#1 عروض من عدّة بائعين: آخر عرض فوق commitmentCap يُرفض", async () => {
     const c = await deploy(); await caps(c);
-    await btcOffer(c, c.seller,  BTC(0.08));  // $4,800
-    await btcOffer(c, c.seller2, BTC(0.06));  // $3,600 ⇒ $8,400
-    expect(await c.g.totalExposureUSDC()).to.equal(U(8_400));
-    await expect(btcOffer(c, c.seller2, BTC(0.002))) // $120 ⇒ $8,520
-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(U(8_520), COMMIT);
+    await btcOffer(c, c.seller,  BTC(0.16));  // $9,600
+    await btcOffer(c, c.seller2, BTC(0.12));  // $7,200 ⇒ $16,800
+    expect(await c.g.totalExposureUSDC()).to.equal(U(16_800));
+    await expect(btcOffer(c, c.seller2, BTC(0.004))) // $240 ⇒ $17,040
+      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(U(17_040), COMMIT);
   });
 
   it("#2 increaseOffer فوق الحدّ يُرفض", async () => {
     const c = await deploy(); await caps(c);
-    await btcOffer(c, c.seller, BTC(0.14)); // $8,400
-    await expect(c.m.connect(c.seller).increaseOffer(1, BTC(0.002)))
+    await btcOffer(c, c.seller, BTC(0.28)); // $16,800
+    await expect(c.m.connect(c.seller).increaseOffer(1, BTC(0.004))) // ⇒ $17,040
       .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
   });
 
@@ -93,7 +93,7 @@ describe.skip("GlobalCap v2 — سقف إجمالي صارم لكل أموال �
     await btcOffer(c, c.seller, BTC(0.05));
     await c.m.connect(c.buyer).buy(1, BTC(0.05), BTC(0.075), Q_BTC, 12, false); // ضمان $4,500
     await btcOffer(c, c.seller2, BTC(0.06));                                  // $3,600 ⇒ $8,100
-    await c.btcFeed.setAnswer(BTC_FEED * 2n);                                  // ⇒ $16,200
+    await c.btcFeed.setAnswer(BTC_FEED * 3n);                                  // ⇒ $24,300 > 20,000
     await expect(btcOffer(c, c.seller, BTC(0.001))).to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
     await c.m.connect(c.buyer).payInstallment(1);
     await c.m.connect(c.seller2).decreaseOffer(2, BTC(0.01));
@@ -137,19 +137,19 @@ describe.skip("GlobalCap v2 — سقف إجمالي صارم لكل أموال �
     await btcOffer(c, c.seller, BTC(0.05), ethers.ZeroAddress);
     await c.m.connect(c.buyer).buy(1, BTC(0.05), 0, Q_BTC, 12, false, { value: E("1.5") });
     await c.ethFeed.setAnswer(240_000_000_000n);          // ETH $2,400 ⇒ ضمان $3,600، HF ≈ 111%
-    await btcOffer(c, c.seller2, BTC(0.0783));            // $4,698 ⇒ إجمالي $8,298 ≤ 8,500
+    await btcOffer(c, c.seller2, BTC(0.22));              // $13,200 ⇒ إجمالي $16,800 ≤ 17,000
 
     // (أ) التزام جديد يتجاوز commitmentCap ⇒ مرفوض
     await expect(btcOffer(c, c.seller2, BTC(0.005))).to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
-    // (ب) إنقاذ في نطاق الاحتياطي حتى HF ≤ 150% ⇒ مسموح (إجمالي $9,018، HF ≈ 134%)
+    // (ب) إنقاذ في نطاق الاحتياطي حتى HF ≤ 150% ⇒ مسموح (إجمالي $17,520، HF ≈ 134%)
     await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") });
     // (ج) ركن فوق 150% في نطاق الاحتياطي ⇒ مرفوض (HF ≈ 156%)
     await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") }))
       .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
     // (د) تجاوز globalCap مرفوض دائماً حتى للإنقاذ
-    await c.btcFeed.setAnswer((BTC_FEED * 13n) / 10n);    // العرض ⇒ $6,107
+    await c.btcFeed.setAnswer((BTC_FEED * 13n) / 10n);    // العرض ⇒ $17,160
     await c.ethFeed.setAnswer(195_000_000_000n);          // ضمان 1.8 ETH ⇒ $3,510، HF ≈ 108.5%
-    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") })) // ⇒ $10,202
+    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") })) // ⇒ $21,255 > 20,000
       .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
   });
 
