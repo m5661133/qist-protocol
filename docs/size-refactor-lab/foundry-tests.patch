@@ -1,0 +1,150 @@
+diff --git a/test/foundry/Handler.sol b/test/foundry/Handler.sol
+index 438c28e..1fdd891 100644
+--- a/test/foundry/Handler.sol
++++ b/test/foundry/Handler.sol
+@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
+ import {MurabahaV6} from "../../contracts/MurabahaV6.sol";
+ import {Offer, Position, OfferState, PositionState} from "../../contracts/libraries/MurabahaTypes.sol";
+ import {MockUSDC, MockWBTC, MockFeed} from "../../contracts/Mocks.sol";
++import {OfferLogic} from "../../contracts/libraries/OfferLogic.sol";
++import {Errors} from "../../contracts/libraries/Errors.sol";
+ 
+ /// @title Handler — يقود دورة حياة العقد بمدخلات محدودة (bounded) لحملة الثوابت.
+ /// @dev عالم مبسّط: البيع + الضمان = WBTC، الدفع = USDC (يتجنّب تعقيد ETH push/pull).
+@@ -25,6 +27,10 @@ contract Handler is Test {
+     uint256 public callsEarly;
+     uint256 public callsLiquidate;
+     uint256 public settlementChecks; // كم مرة تحقّقنا من حفظ الضمان عند التسوية
++    // Build 22 — السقف: إيداع نجح وتركت العهدة فوق الحد = خرق؛ رفض بالسقف = دليل أن الحد يعمل فعلاً
++    uint256 public capBreaches;
++    uint256 public capRejections;
++    uint256 public capChecks;
+     bool    public brokenSettlement; // يُرفع إن كسرت تصفيةٌ ثابتَ التسوية (يُفحَص في طبقة الثابت — لا يُبتلع)
+ 
+     constructor(MurabahaV6 _m, MockUSDC _usdc, MockWBTC _wbtc, MockFeed _btcFeed) {
+@@ -55,14 +61,14 @@ contract Handler is Test {
+         saleAmt   = bound(saleAmt, 1e5, 5e8);            // 0.001 .. 5 WBTC
+         maxInst   = uint8(bound(maxInst, 1, 12));
+         minInst   = uint8(bound(minInst, 1, maxInst));
+-        profitBps = uint16(bound(profitBps, 0, m.MAX_PROFIT_BPS()));
++        profitBps = uint16(bound(profitBps, 0, OfferLogic.MAX_PROFIT_BPS)); // Build 22: الثابت انتقل إلى OfferLogic
+         ratioBps  = uint16(bound(ratioBps, 11000, 20000));
+         if (wbtc.balanceOf(seller) < saleAmt) return;
+         vm.prank(seller);
+         try m.createOffer(
+             address(wbtc), address(wbtc), address(usdc),
+             saleAmt, profitBps, minInst, maxInst, 1 days, 0, ratioBps, false
+-        ) { callsCreate++; } catch {}
++        ) { callsCreate++; _afterDeposit(true); } catch (bytes memory e) { _onRevert(e); }
+     }
+ 
+     function h_buy(
+@@ -90,7 +96,7 @@ contract Handler is Test {
+         uint256 quoted = m.quotePrice(address(wbtc)); // بلا انزلاق
+ 
+         vm.prank(buyer);
+-        try m.buy(offerId, purchase, collateral, quoted, inst, false) { callsBuy++; } catch {}
++        try m.buy(offerId, purchase, collateral, quoted, inst, false) { callsBuy++; _afterDeposit(true); } catch (bytes memory e) { _onRevert(e); }
+     }
+ 
+     function h_payInstallment(uint256 posSeed) public {
+@@ -125,7 +131,7 @@ contract Handler is Test {
+         amt = bound(amt, 1, 1e8);
+         if (wbtc.balanceOf(buyer) < amt) return;
+         vm.prank(buyer);
+-        try m.addCollateral(pid, amt) {} catch {}
++        try m.addCollateral(pid, amt) { _afterDeposit(false); } catch (bytes memory e) { _onRevert(e); }
+     }
+ 
+     function h_withdrawExcess(uint256 posSeed, uint256 amt) public {
+@@ -171,4 +177,22 @@ contract Handler is Test {
+             buyer; colBefore;
+         } catch {}
+     }
++
++    // ═══════════ Build 22: فحص السقف بعد كل إيداع ناجح ═══════════
++
++    /// @dev _enforceCap يُستدعى في نهاية الإيداع، فالعهدة بعد نجاحه يجب أن تكون ≤ الحد
++    ///      (السعر لم يتغيّر بين الإيداع وهذا الفحص). الإنقاذ يخضع للصارم فقط.
++    function _afterDeposit(bool commitment) internal {
++        uint256 g = m.globalCapUSDC();
++        if (g == 0) return;
++        capChecks++;
++        uint256 exp = m.totalExposureUSDC();
++        if (exp > g || (commitment && exp > m.commitmentCapUSDC())) capBreaches++;
++    }
++
++    function _onRevert(bytes memory e) internal {
++        if (e.length < 4) return;
++        bytes4 sel = bytes4(e);
++        if (sel == Errors.GlobalCapExceeded.selector || sel == Errors.OfferCapExceeded.selector) capRejections++;
++    }
+ }
+diff --git a/test/foundry/MurabahaInvariant.t.sol b/test/foundry/MurabahaInvariant.t.sol
+index fdd45e4..7591875 100644
+--- a/test/foundry/MurabahaInvariant.t.sol
++++ b/test/foundry/MurabahaInvariant.t.sol
+@@ -26,7 +26,7 @@ contract MurabahaInvariant is Test {
+     address constant BROKER   = address(0xB0B);
+     address constant PROTOCOL = address(0xC0DE);
+ 
+-    function setUp() public {
++    function setUp() public virtual {
+         usdc    = new MockUSDC();
+         wbtc    = new MockWBTC();
+         ethFeed = new MockFeed(2_000e8, 8);
+@@ -92,6 +92,30 @@ contract MurabahaInvariant is Test {
+         assertFalse(handler.brokenSettlement(), "I6: liquidation broke settlement invariant");
+     }
+ 
++    /// I7 — Build 22: عدّادات العهدة = مجموع العروض النشطة والمراكز النشطة (الدلوان A وB)، ولا خلل محاسبي.
++    function invariant_I7_custodyMatchesState() public view {
++        uint256 offersSum;
++        uint256 no = m.nextOfferId();
++        for (uint256 i = 1; i < no; i++) {
++            Offer memory o = m.getOffer(i);
++            if (o.state == OfferState.ACTIVE) offersSum += o.saleAmount;
++        }
++        uint256 colSum;
++        uint256 np = m.nextPositionId();
++        for (uint256 i = 1; i < np; i++) {
++            Position memory p = m.getPosition(i);
++            if (p.state == PositionState.ACTIVE) colSum += p.collateralAmount;
++        }
++        assertEq(m.offerCustody(address(wbtc)), offersSum, "I7: offerCustody != active offers");
++        assertEq(m.collateralCustody(address(wbtc)), colSum, "I7: collateralCustody != active collateral");
++        assertFalse(m.accountingFault(), "I7: accountingFault raised");
++    }
++
++    /// I8 — Build 22: لا إيداع ناجح يترك العهدة فوق الحد.
++    function invariant_I8_capNeverBreachedByDeposit() public view {
++        assertEq(handler.capBreaches(), 0, "I8: deposit succeeded above cap");
++    }
++
+     /// @dev ملخّص تغطية الحملة — يظهر مع -vvv؛ يضمن أن الأفعال نُفّذت فعلاً.
+     function invariant_callSummary() public view {
+         console2.log("createOffer:", handler.callsCreate());
+@@ -100,6 +124,8 @@ contract MurabahaInvariant is Test {
+         console2.log("earlyRepay: ", handler.callsEarly());
+         console2.log("liquidate:  ", handler.callsLiquidate());
+         console2.log("settleCheck:", handler.settlementChecks());
++        console2.log("capChecks:  ", handler.capChecks());
++        console2.log("capReject:  ", handler.capRejections());
+         assertTrue(true);
+     }
+ 
+@@ -195,3 +221,14 @@ contract MurabahaInvariant is Test {
+         (total, paid) = (po_.totalInstallments, po_.paidInstallments);
+     }
+ }
++
++/// @title نفس الحملة والسقف مفعّل — حدود بمقياس عالم الاختبار (WBTC $60k، عروض حتى 5 WBTC)
++/// @dev النسب نفسها المعتمدة (20k / 15k / 5k) مضروبة في 100: جزء من الإيداعات يصطدم بالحد فعلاً
++///      (capChecks / capRejections في invariant_callSummary -vv؛ الدليل على أن I8 يكشف الخرق = اختبار الطفرات في التقرير).
++contract MurabahaInvariantCapped is MurabahaInvariant {
++    function setUp() public override {
++        super.setUp();
++        m.setCustodyCaps(2_000_000e6, 1_500_000e6, 500_000e6);
++    }
++
++}
