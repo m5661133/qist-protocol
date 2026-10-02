@@ -19,6 +19,7 @@ export const GRACE = 259200;
 export const ETH_FEED = 300_000_000_000n;   // $3,000
 export const BTC_FEED = 6_000_000_000_000n; // $60,000
 const PRICE_USDC: Record<string, bigint> = {}; // token → سعر بـ6 خانات
+let offerSeq = 0; // يناوب أصل الضمان بين العروض حتى تتوفّر عروض بضمان ETH وcbBTC دائماً
 
 export async function deployScenario() {
   const [owner, seller, seller2, buyer, buyer2, stranger] = await ethers.getSigners();
@@ -32,6 +33,7 @@ export async function deployScenario() {
   ], { kind: "uups", unsafeAllow: ["constructor"] });
   const mAddr = await m.getAddress();
   const wAddr = await wbtc.getAddress();
+  offerSeq = 0;
   PRICE_USDC[ethers.ZeroAddress] = 3000n * 10n ** 6n;
   PRICE_USDC[wAddr] = 60000n * 10n ** 6n;
   for (const a of [seller, seller2, buyer, buyer2]) {
@@ -97,20 +99,26 @@ export const OPS = [
   "createOfferBTC", "createOfferETH", "increaseOffer", "decreaseOffer", "cancelOffer",
   "buyBTCcol", "buyETHcol", "addCollateral", "withdrawExcess", "payInstallment",
   "earlyRepayCash", "earlyRepayWithCollateral", "liquidateOverdue", "withdrawETH",
+  "payToCompletion", "liquidateUnderwater",
 ] as const;
 export type Op = (typeof OPS)[number];
 
-/** ينفّذ مساراً واحداً على هدف صالح. يرمي إن لم يوجد هدف أو فشلت المعاملة. */
-export async function runOp(s: Scn, op: Op, r: (n: number) => number) {
+/**
+ * ينفّذ مساراً واحداً على هدف صالح. يرمي إن لم يوجد هدف أو فشلت المعاملة.
+ * @param check يُستدعى بعد كل معاملة **داخلية** ناجحة في المسارات المركّبة
+ *              (withdrawExcess · payToCompletion) — حتى لا يفوت فحصُ الثوابت أيَّ انتقال.
+ */
+export async function runOp(s: Scn, op: Op, r: (n: number) => number,
+                            check?: (op: Op) => Promise<void>) {
   const pick = <T>(xs: T[]) => { if (!xs.length) throw new Error(`no target for ${op}`); return xs[r(xs.length)]; };
   const usdcAddr = await s.usdc.getAddress();
   switch (op) {
     case "createOfferBTC": {
-      const col = r(2) ? s.wAddr : ethers.ZeroAddress;
+      const col = offerSeq++ % 2 ? ethers.ZeroAddress : s.wAddr;
       return s.m.connect(pick(s.sellers)).createOffer(s.wAddr, col, usdcAddr, BTC(0.02 + r(4) / 100), 1000, 1, 12, INTERVAL, 0, 12000, false);
     }
     case "createOfferETH": {
-      const col = r(2) ? s.wAddr : ethers.ZeroAddress;
+      const col = offerSeq++ % 2 ? s.wAddr : ethers.ZeroAddress;
       return s.m.connect(pick(s.sellers)).createOffer(ethers.ZeroAddress, col, usdcAddr, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("0.5") + E("0.1") * BigInt(r(5)) });
     }
     case "increaseOffer": {
@@ -150,8 +158,10 @@ export async function runOp(s: Scn, op: Op, r: (n: number) => number) {
       const { id, p } = pick(await activePositions(s));
       const who = signerOf(s, p.buyer);
       const extra = isEth(p.collateralToken) ? E("0.5") : BTC(0.01);
-      if (isEth(p.collateralToken)) await s.m.connect(who).addCollateral(id, 0, { value: extra });
-      else await s.m.connect(who).addCollateral(id, extra);
+      const add = isEth(p.collateralToken) ? await s.m.connect(who).addCollateral(id, 0, { value: extra })
+                                           : await s.m.connect(who).addCollateral(id, extra);
+      await add.wait();
+      if (check) await check("addCollateral");
       return s.m.connect(who).withdrawExcessCollateral(id, extra / 2n);
     }
     case "payInstallment": {
@@ -174,6 +184,29 @@ export async function runOp(s: Scn, op: Op, r: (n: number) => number) {
       await time.increase(GRACE + Number(INTERVAL) * 13);
       return s.m.connect(s.stranger).liquidatePositionPublic(id);
     }
+    case "payToCompletion": {
+      // يدفع كل الأقساط حتى القسط الأخير (الذي يُعيد الضمان ويُغلق المركز)
+      const { id, p } = pick(await activePositions(s));
+      const who = signerOf(s, p.buyer);
+      let tx;
+      for (;;) {
+        tx = await s.m.connect(who).payInstallment(id);
+        await tx.wait();
+        if ((await s.m.positions(id)).state !== 0n) return tx; // القسط الأخير — COMPLETED
+        if (check) await check("payInstallment");
+      }
+    }
+    case "liquidateUnderwater": {
+      // تصفية نقص الضمان (لا التأخّر): هبوط سعر الضمان 50% ⇒ HF < 105%، ثم يُعاد السعر
+      const { id, p } = pick(await activePositions(s));
+      const feed = isEth(p.collateralToken) ? s.ethFeed : s.btcFeed;
+      const orig = isEth(p.collateralToken) ? ETH_FEED : BTC_FEED;
+      await feed.setAnswer(orig / 2n);
+      const tx = await s.m.connect(s.stranger).liquidatePositionPublic(id);
+      await tx.wait();
+      await feed.setAnswer(orig);
+      return tx;
+    }
     case "withdrawETH": {
       const all = [...s.sellers, ...s.buyers, s.owner];
       const owed = [];
@@ -188,7 +221,9 @@ export const MANDATORY: Op[] = [
   "createOfferBTC", "createOfferBTC", "createOfferETH", "createOfferETH",
   "increaseOffer", "decreaseOffer",
   "buyBTCcol", "buyETHcol", "buyBTCcol", "buyETHcol",
+  "buyETHcol", // خامس مركز — يكفي لكل مسارات الإغلاق الخمسة أدناه
   "addCollateral", "withdrawExcess", "payInstallment",
+  "payToCompletion", "liquidateUnderwater",
   "earlyRepayCash", "earlyRepayWithCollateral",
   "liquidateOverdue", "withdrawETH", "cancelOffer",
 ];
@@ -204,7 +239,7 @@ export async function runScenario(s: Scn, seed: number, randomSteps: number,
   // المرحلة المُلزِمة: كل مسار هنا يجب أن ينجح فعلاً
   // إعادة تعبئة العروض قبل الشراء الثاني لكل نوع ضمان مضمونة بعرضين لكل أصل.
   for (const op of MANDATORY) {
-    const tx = await runOp(s, op, r);
+    const tx = await runOp(s, op, r, check);
     await tx.wait();
     ok[op]++;
     if (check) await check(op);
@@ -213,7 +248,7 @@ export async function runScenario(s: Scn, seed: number, randomSteps: number,
   for (let i = 0; i < randomSteps; i++) {
     const op = OPS[r(OPS.length)];
     try {
-      const tx = await runOp(s, op, r);
+      const tx = await runOp(s, op, r, check);
       await tx.wait();
       ok[op]++;
     } catch { continue; } // لا هدف صالح أو رفض مشروع — يُحتسب فقط ما نجح

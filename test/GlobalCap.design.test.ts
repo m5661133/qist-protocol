@@ -7,13 +7,14 @@ import {
 } from "./helpers/custodyScenario";
 
 /**
- * اختبارات تصميم السقف الإجمالي v2 — docs/global-cap-design.md (القسم 8)
+ * اختبارات تصميم السقف الإجمالي v3 — docs/global-cap-design.md (القسم 8)
  *
  * ⏸ موقوفة (describe.skip): تختبر واجهة لم تُنفَّذ بعد في MurabahaV6:
  *    custodyOf(token) · globalCapUSDC() · commitmentCapUSDC() · accountingFault()
  *    setCustodyCaps(global, commitment) · totalExposureUSDC() · untrackedBalance(token)
  *    reconcileCustody(address[], uint256[]) · initializeV3(global, commitment)
  *    errors: GlobalCapExceeded(uint256,uint256) · AccountingFault() · CustodyInsolvent(address,uint256,uint256)
+ *            NewCommitmentsPaused() (v3 — CAP-V2-01)
  * و#14/#15 تحتاجان عقد اختبار contracts/test/MurabahaV6CustodyHarness.sol (forceCustody/forceDrain).
  * تُفعَّل بإزالة `.skip` بعد التنفيذ والمراجعة.
  */
@@ -34,7 +35,7 @@ async function btcOffer(c: Ctx, who: any, amount: bigint, colToken?: string) {
   return c.m.connect(who).createOffer(c.wAddr, colToken ?? c.wAddr, await c.usdc.getAddress(), amount, 1000, 1, 12, INTERVAL, 0, 12000, false);
 }
 
-describe.skip("GlobalCap v2 — سقف إجمالي صارم لكل أموال العقد (تصميم)", () => {
+describe.skip("GlobalCap v3 — سقف إجمالي صارم لكل أموال العقد (تصميم)", () => {
 
   it("#1 عروض من عدّة بائعين: آخر عرض فوق commitmentCap يُرفض", async () => {
     const c = await deploy(); await caps(c);
@@ -153,15 +154,68 @@ describe.skip("GlobalCap v2 — سقف إجمالي صارم لكل أموال �
       .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
   });
 
-  it("#9 السقف 0 = معطّل · الإعداد للمالك فقط · commitmentCap ≤ globalCap", async () => {
+  it("#9 (0,0) معطّل · الإعداد للمالك فقط · (0,k>0) وk>g مرفوضان", async () => {
     const c = await deploy();
     expect(await c.g.globalCapUSDC()).to.equal(0n);
-    await btcOffer(c, c.seller, BTC(5)); // $300,000 — لا حدّ
+    await btcOffer(c, c.seller, BTC(5)); // $300,000 — لا حدّ عند (0,0)
     await expect(c.g.connect(c.stranger).setCustodyCaps(GLOBAL, COMMIT))
       .to.be.revertedWithCustomError(c.m, "OwnableUnauthorizedAccount");
     await expect(c.g.connect(c.owner).setCustodyCaps(GLOBAL, GLOBAL + 1n))
       .to.be.revertedWithCustomError(c.m, "InvalidParams");
+    await expect(c.g.connect(c.owner).setCustodyCaps(0n, COMMIT))   // متناقض
+      .to.be.revertedWithCustomError(c.m, "InvalidParams");
     await expect(caps(c)).to.emit(c.m, "CustodyCapsSet").withArgs(GLOBAL, COMMIT);
+    await expect(c.g.connect(c.owner).setCustodyCaps(0n, 0n)).to.emit(c.m, "CustodyCapsSet"); // تعطيل مقصود
+  });
+
+  it("#9b CAP-V2-01: (global>0, commitment=0) يوقف الالتزامات ولا يعطّل السقف", async () => {
+    const c = await deploy(); await caps(c);
+    await btcOffer(c, c.seller, BTC(0.05), ethers.ZeroAddress);
+    await c.m.connect(c.buyer).buy(1, BTC(0.05), 0, Q_BTC, 12, false, { value: E("1.5") });
+    await c.g.connect(c.owner).setCustodyCaps(GLOBAL, 0n);
+    // عرض يتجاوز الصارم ⇒ يُرفض بالصارم أولاً (لا «بلا حد»)
+    await expect(btcOffer(c, c.seller2, BTC(0.3334))) // $20,004
+      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
+    // وأي التزام صغير ⇒ موقوف
+    await expect(btcOffer(c, c.seller2, BTC(0.001))).to.be.revertedWithCustomError(c.m, "NewCommitmentsPaused");
+    await expect(c.m.connect(c.buyer2).buy(1, BTC(0.001), 0, Q_BTC, 12, false, { value: E("0.1") }))
+      .to.be.revertedWithCustomError(c.m, "NewCommitmentsPaused");
+    // الإنقاذ يبقى متاحاً حتى globalCap (HF ≤ 150%)
+    await c.ethFeed.setAnswer(240_000_000_000n);
+    await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") });
+    // والخروج كذلك
+    await c.m.connect(c.buyer).earlyRepayCash(1);
+  });
+
+  it("#8b ضغط: 3 مراكز تبلغ HF 105% معاً — الثلاثة تُنقَذ إلى 130%، والثالث يُرفض إلى 150% (§5.0)", async () => {
+    const c = await deploy(); await caps(c);
+    // عرض cbBTC بضمان ETH يكفي لثلاثة مراكز دين كل منها ≈ $4,000 + عرض آخر غير مباع
+    await btcOffer(c, c.seller, BTC(0.2), ethers.ZeroAddress);  // #1
+    await btcOffer(c, c.seller2, BTC(0.027));                   // #2 — يبقى غير مباع
+    const buyers = [c.buyer, c.buyer2, c.buyer];
+    for (const b of buyers) {
+      const [, , req] = await c.m.estimatePurchase(1, BTC(0.0618), 12); // ضمان 120% بالضبط
+      await c.m.connect(b).buy(1, BTC(0.0618), 0, Q_BTC, 12, false, { value: (req * 10n ** 18n) / (3000n * 10n ** 6n) + 1n });
+    }
+    expect(await c.g.totalExposureUSDC()).to.be.lte(COMMIT);    // ≈ $16,886
+    await c.ethFeed.setAnswer(262_500_000_000n);                 // ETH $2,625 ⇒ HF ≈ 105% للثلاثة
+    const price = 2625n * 10n ** 6n;
+    const topUp = async (id: number, hfBps: bigint) => {
+      const debt = await c.m.getRemainingDebt(id);
+      const col  = (await c.m.positions(id)).collateralAmount;
+      const want = (debt * hfBps / 10000n) * 10n ** 18n / price + 1n;
+      return want > col ? want - col : 0n;
+    };
+    for (const id of [1, 2, 3]) {                                // إلى 130% — الثلاثة تنجح
+      const who = (await c.m.positions(id)).buyer === c.buyer.address ? c.buyer : c.buyer2;
+      await c.m.connect(who).addCollateral(id, 0, { value: await topUp(id, 13000n) });
+    }
+    for (const id of [1, 2]) {                                   // إلى 150% — الأول والثاني ينجحان
+      const who = (await c.m.positions(id)).buyer === c.buyer.address ? c.buyer : c.buyer2;
+      await c.m.connect(who).addCollateral(id, 0, { value: await topUp(id, 15000n) });
+    }
+    await expect(c.m.connect(c.buyer).addCollateral(3, 0, { value: await topUp(3, 15000n) })) // ≈ $20,483 (مُقاس على العقد الحالي)
+      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
   });
 
   it("#10 الثابت I1 بعد كل خطوة من مولّد السيناريوهات المُثبَتة تغطيته", async () => {
@@ -218,9 +272,26 @@ describe.skip("GlobalCap v2 — سقف إجمالي صارم لكل أموال �
       await expect(up.connect(L.owner).initializeV3(GLOBAL, COMMIT)).to.be.reverted; // مرة واحدة فقط
     });
 
-    it("initializeV3 لغير المالك ⇒ مرفوضة", async () => {
+    it("#11c CAP-V2-02: صلاحية initializeV3 معزولة عن صلاحية الترقية", async () => {
+      // في بيئة الاختبار فقط: ترقية بلا تهيئة حتى يصل الاستدعاء إلى initializeV3 نفسها.
+      // (رفض upgradeTo من غريب يحدث في _authorizeUpgrade قبلها، فلا يثبت حماية التهيئة.)
       const L = await legacy();
-      await expect(upgradeTo(L.p, L.stranger)).to.be.reverted;
+      const up: any = await upgrades.upgradeProxy(L.p, await ethers.getContractFactory("MurabahaV6", L.owner),
+        { unsafeAllow: ["constructor"] });
+      await expect(up.connect(L.stranger).initializeV3(GLOBAL, COMMIT))
+        .to.be.revertedWithCustomError(up, "OwnableUnauthorizedAccount").withArgs(L.stranger.address);
+      await up.connect(L.owner).initializeV3(GLOBAL, COMMIT);
+      expect(await up.globalCapUSDC()).to.equal(GLOBAL);
+      await expect(up.connect(L.owner).initializeV3(GLOBAL, COMMIT))
+        .to.be.revertedWithCustomError(up, "InvalidInitialization");
+    });
+
+    it("initializeV3 ترفض (0, k>0) وk > g", async () => {
+      const L = await legacy();
+      const up: any = await upgrades.upgradeProxy(L.p, await ethers.getContractFactory("MurabahaV6", L.owner),
+        { unsafeAllow: ["constructor"] });
+      await expect(up.connect(L.owner).initializeV3(0n, COMMIT)).to.be.revertedWithCustomError(up, "InvalidParams");
+      await expect(up.connect(L.owner).initializeV3(GLOBAL, GLOBAL + 1n)).to.be.revertedWithCustomError(up, "InvalidParams");
     });
 
     it("tokenList مكرّرة في الحالة القديمة ⇒ الترقية تُرفض", async () => {
@@ -278,6 +349,37 @@ describe.skip("GlobalCap v2 — سقف إجمالي صارم لكل أموال �
     await h.connect(c.owner).unpause();
     expect(await h.accountingFault()).to.equal(false);
     await btcOffer(c, c.seller, BTC(0.01));                           // الإيداع عاد
+  });
+
+  it("#14b خلل في رمزين: لا تُمسح العلامة إلا بلقطة كاملة صحيحة", async () => {
+    const H = await ethers.getContractFactory("MurabahaV6CustodyHarness");
+    const c = await deploy();
+    const h: any = await upgrades.upgradeProxy(c.m, H, { unsafeAllow: ["constructor"] });
+    const usdcAddr = await c.usdc.getAddress();
+    await btcOffer(c, c.seller, BTC(0.1));                                                   // #1 cbBTC
+    await h.connect(c.seller).createOffer(ethers.ZeroAddress, ethers.ZeroAddress, usdcAddr, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") }); // #2 ETH
+    await h.forceCustody(c.wAddr, BTC(0.05));
+    await h.forceCustody(ethers.ZeroAddress, E("0.5"));
+    await h.connect(c.seller).cancelOffer(1);  // خلل cbBTC
+    await h.connect(c.seller).cancelOffer(2);  // خلل ETH
+    expect(await h.accountingFault()).to.equal(true);
+    await h.connect(c.owner).pause();
+
+    const list: string[] = [...(await h.getSupportedTokens())]; // [ETH, cbBTC, USDC]
+    const truth = await Promise.all(list.map((t) => recomputeCustody(c, t)));
+    const bad = (tokens: string[], values: bigint[]) =>
+      expect(h.connect(c.owner).reconcileCustody(tokens, values)).to.be.revertedWithCustomError(h, "InvalidParams");
+    await bad([], []);                                                   // فارغة
+    await bad([c.wAddr], [truth[1]]);                                    // رمز واحد — ناقصة
+    await bad([list[1], list[0], list[2]], [truth[1], truth[0], truth[2]]); // ترتيب مختلف
+    await bad([list[0], list[1], list[1]], [truth[0], truth[1], truth[1]]); // مكرّر
+    await bad(list, [truth[0], truth[1]]);                               // اختلاف الطول
+    await bad([list[0], list[1], c.stranger.address], truth);            // رمز غريب
+    await expect(h.connect(c.owner).reconcileCustody(list, [truth[0], BTC(9), truth[2]]))
+      .to.be.revertedWithCustomError(h, "CustodyInsolvent");             // يخالف I2 لرمز واحد ⇒ تُرفض كلها
+    expect(await h.accountingFault()).to.equal(true);                    // لم تُمسح
+    await h.connect(c.owner).reconcileCustody(list, truth);
+    expect(await h.accountingFault()).to.equal(false);
   });
 
   it("#15 سحب يتجاوز المحاسبة: قاطع I2 يوقف الإيداع", async () => {
