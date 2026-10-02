@@ -15,8 +15,31 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
 |---|---|
 | `scripts/build22-upgrade.ts` | نشر المكتبات الأربع + التنفيذ المربوط؛ مقارنة كود كلٍّ منها على السلسلة بالمُجمَّع؛ حدّ 24,576؛ توافق التخزين ضد Build 21 الفعلي؛ ترميز `upgradeToAndCall(impl, initializeV3(20k,15k,5k))` |
 | `scripts/prepare-upgrade-build22-safe.ts` | يطبع معاملة الـSafe (تجربة جافة على النسخة المحلية؛ على Base فقط بقرار المالك) |
-| `scripts/fork-upgrade-build22.ts` | المحاكاة الكاملة — 34 فحصاً |
+| `scripts/fork-upgrade-build22.ts` | المحاكاة الكاملة — 40 فحصاً |
 | `hardhat.fork.config.ts` | إعداد التفرّع (`FORK_BLOCK` اختياري) |
+
+## معالجة مراجعة جبتي (3 أكتوبر)
+
+### B6-UPG-01 (P1) — التحقق من تنفيذ الـProxy قبل أي نشر — معالجة
+- `preflight()` مشتركة في `scripts/build22-upgrade.ts`: chainId ∈ {8453, 31337} · تنفيذ الـProxy = Build 21 ·
+  keccak كوده = المسجّل · نسخة التهيئة = 1 · المالك = الـSafe `0x64D7…4064`. أي اختلاف ⇒ رفض.
+- `prepare-upgrade-build22-safe.ts` يستدعيها **قبل نشر أي مكتبة**، ثم ثانيةً قبل إخراج calldata.
+  `validateAgainstBuild21` يستدعيها **قبل forceImport**.
+- اختبار الانحدار (القسم 0): خانة التنفيذ تُضبط على Build 19 الحقيقي ⇒ الرفض، وnonce المنشئ ثابت (لا نشر)، و`validateAgainstBuild21` ترفض قبل forceImport.
+
+### B6-UPG-02 (P2) — حالة 50 ETH كانت تختبر 20k لا 15k — معالجة
+- حالتان بقيمة محسوبة من السعر الحي، والخطأ **مفكوك** (الاسم + الوسيطان):
+  ≈$17,500 ⇒ `GlobalCapExceeded(…, 15,000)` · ≈$25,000 ⇒ `GlobalCapExceeded(…, 20,000)`.
+- اختبار الانحدار المطلوب نُفّذ: حذف `if (exp > k) revert` وحده ⇒ حالة 17,500 تُرفض بـ`OfferCapExceeded(…, 5,000)` فيفشل الفحص (39/40). الطفرة أُعيدت.
+
+### الرجوع مع نشاط ومصالحة — أُضيف (القسم 9)
+رجوع ⇒ عرض 0.02 ETH على Build 21 ⇒ `pause` ⇒ عودة بلا تهيئة ⇒ العدّاد متأخر بالضبط 0.02 ⇒ مصالحة ناقصة تُرفض ⇒
+مصالحة كاملة محسوبة من الحالة (`computeCustody`) ⇒ العدّادات = الحالة و`accountingFault=false` ⇒ `unpause` ⇒ إيداع جديد يتابعه العدّاد.
+(`computeCustody` هو نواة `scripts/reconcile-custody.ts` المطلوب لاحقاً.)
+
+### تعطل EDR عند جبتي
+رسالة `system-configuration: Attempted to create a NULL object` تأتي من مكتبة Rust تقرأ إعدادات الشبكة في macOS
+(SCDynamicStore) — تظهر عادةً داخل sandbox يمنع ذلك، لا من السكربت. المحاكاة هنا شُغّلت خارج ذلك القيد.
 
 ## ملاحظة على السكربت الحالي `scripts/prepare-upgrade-murabaha-safe.ts`
 
@@ -25,14 +48,16 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
 السكربت الجديد يستدعي `forceImport` بمصنع `MurabahaV6Build21` بعد التحقق أن كوده التنفيذي = الحي.
 (الذيل CBOR metadata يختلف لأن العقد أُعيدت تسميته في `legacy/b21`؛ الكود التنفيذي مطابق حرفياً.)
 
-## النتيجة
+## النتيجة (بعد ملاحظات جبتي B6-UPG-01/02 — 40/40)
 
 ```
 🔱 محاكاة ترقية Build 21 → Build 22 — نسخة Base عند الكتلة 52091342
+── 0. B6-UPG-01: Proxy على تنفيذ آخر ⇒ رفض قبل أي نشر أو forceImport
+  ✅ preflight يرفض: «⛔ تنفيذ الـProxy الحالي 0xb775f07634ad5e673261ed5ce6a03924dc…»
+  ✅ لم تُنشر أي مكتبة (nonce المنشئ ثابت)
+  ✅ validateAgainstBuild21 يرفض قبل forceImport
 ── 1. خط الأساس الحي
-  ✅ التنفيذ الحالي = Build 21 (0x0c0114d6…)
-  ✅ بصمة كود Build 21 مطابقة للمسجّلة في docs/ROLLBACK.md
-  ✅ نسخة التهيئة الحية = 1
+  ✅ preflight: Build 21 (0x0c0114d6…) · بصمة مطابقة · تهيئة 1 · المالك = الـSafe
      المالك 0x64D738021BAe4cb9a7fd82529C2F94f61d404064 · عروض 24 · مراكز 17 · رموز 3
 ── 2. النشر والتحقق من الكود (على النسخة المحلية)
      CustodyLib         2971 بايت  0x6cEE3AC97C67E0B39238fb564faf10218C59a6e9
@@ -76,13 +101,19 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
   ✅ عرض صغير 0.01 ETH يمر
       سعر ETH ≈ $2668.7717 ⇒ عرض 3.747042131779200146 ETH ≈ $10,000
   ✅ عرض ≈ $10,000 يُرفض بحد العروض OfferCapExceeded (5,000)
-      الرفض: 0xa15c414d
-  ✅ عرض 50 ETH يُرفض بحد الالتزامات GlobalCapExceeded (15,000)
-── 9. الرجوع إلى Build 21 ثم العودة
+      ≈$17,500 ⇒ GlobalCapExceeded(exposure $17500.000051, cap $15000.0)
+  ✅ إجمالي ≈$17,500 (بين 15k و20k) ⇒ GlobalCapExceeded بحد الالتزامات 15,000
+      ≈$25,000 ⇒ GlobalCapExceeded(exposure $25000.000074, cap $20000.0)
+  ✅ إجمالي ≈$25,000 (فوق 20k) ⇒ GlobalCapExceeded بالحد الصارم 20,000
+── 9. الرجوع إلى Build 21 + نشاط أثناءه + عودة مع الإيقاف + مصالحة
   ✅ الرجوع: التنفيذ = Build 21
   ✅ الرجوع: كل البيانات كما هي
-  ✅ العودة إلى Build 22 بلا تهيئة ثانية: التنفيذ والحدود محفوظة
-═══ 34/34 ═══
+  ✅ العودة: Build 22 · تهيئة 3 · الحدود محفوظة · موقوف
+  ✅ قبل المصالحة: عدّاد عروض ETH متأخر 0.015 ≠ الفعلي 0.035
+  ✅ reconcileCustody ترفض لقطة ناقصة
+  ✅ بعد المصالحة: العدّادات = الحالة لكل رمز، وaccountingFault = false
+  ✅ بعد الفتح: إيداع جديد يمر والعدّاد يتابعه
+═══ 40/40 ═══
 ✅ المحاكاة نجحت كاملة
 ```
 
@@ -94,5 +125,5 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
 - ✅ الحدود الثلاثة تعمل على الحالة الحية: عرض صغير يمر، ≈$10k يُرفض بحد العروض، 50 ETH بحد الالتزامات.
 - ⚠️ الغاز ورسوم الـSafe تقديرية؛ محاكاة Tenderly من واجهة الـSafe مطلوبة قبل التوقيع.
 - ⚠️ بعد الرجوع لـBuild 21 ثم العودة: العدّادات لا تتابع ما جرى أثناء Build 21 ⇒ `reconcileCustody` قبل الفتح.
-- ❌ اختبارات Foundry ما زالت غير مشغّلة (`forge` غير مثبّت).
+- ✅ Foundry: انظر FOUNDRY.md (22/22 + ثوابت I7/I8 + طفرات).
 - ❌ التحقق على Basescan للمكتبات المربوطة لم يُجرَّب (يتم بعد النشر الفعلي).
