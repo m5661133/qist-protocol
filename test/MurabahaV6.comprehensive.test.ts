@@ -1644,6 +1644,43 @@ describe("S — إصلاحات التحصين", () => {
     await expect(m.liquidatePositionPublic(1)).to.be.revertedWithCustomError(m, "StalePrice");
   });
 
+  // GPT-13 (حالة متبقية — مراجعة جبتي 21:36): فرع التأخّر في isLiquidatable يُرجع true قبل أي
+  // قراءة سعر، فلا يرمي، فيُقترَح مركز متأخر بمغذٍّ متقادم للتصفية الآلية؛ التسوية تقرأ السعر
+  // فتفشل (UpkeepFailed)، والجولة التالية تقترحه نفسه ⇒ يتجمّد الطابور وقسط ETH السليم لا يُدفع.
+  it("مركز متأخر بمغذٍّ متقادم لا يحتلّ الطابور — يُقترَح ما بعده ويعود حين يعود السعر (GPT-13)", async () => {
+    const ctx = await deploy();
+    const { m, usdc, wbtc, btcFeed, seller, buyer, buyer2, keeper } = ctx;
+    const mAddr = await m.getAddress();
+    const wbtcAddr = await wbtc.getAddress();
+    const usdcAddr = await usdc.getAddress();
+    // #1 — cbBTC/cbBTC، البائع فعّل التصفية الآلية
+    await wbtc.connect(seller).approve(mAddr, BTC(1));
+    await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(1), 1000, 1, 12, INTERVAL, 0, 12000, true);
+    await wbtc.connect(buyer).approve(mAddr, BTC(2));
+    await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false);
+    await time.increase(GRACE + INTERVAL_N + 1); // #1 متجاوز للمهلة
+    // #2 — ETH/ETH بدفع آلي، يُفتح بعد القفزة فيكون مستحقاً لا متأخراً
+    await m.connect(seller).createOffer(ethers.ZeroAddress, ethers.ZeroAddress, usdcAddr, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("2") });
+    await usdc.connect(buyer2).approve(mAddr, U(2_000_000));
+    await m.connect(buyer2).buy(2, E("1"), 0, Q_ETH, 12, true, { value: E("2") });
+    await time.increase(INTERVAL_N);
+    await btcFeed.setStale(7200);
+
+    const enc = (id: number) => ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [id]);
+    const [needed, data] = await m.checkUpkeep.staticCall("0x");
+    expect(needed).to.equal(true);
+    expect(data).to.equal(enc(2)); // لا #1
+    await m.connect(keeper).performUpkeep(data);
+    expect((await m.positions(2)).paidInstallments).to.equal(1); // قسط ETH دُفع فعلاً
+
+    // عودة المغذّي ⇒ #1 يُقترَح للتصفية من جديد وتنجح
+    await btcFeed.setAnswer(BTC_FEED);
+    const [needed2, data2] = await m.checkUpkeep.staticCall("0x");
+    expect(needed2).to.equal(true);
+    expect(data2).to.equal(enc(1));
+    await expect(m.connect(keeper).performUpkeep(data2)).to.emit(m, "PositionLiquidated");
+  });
+
   // GPT-14: الأقساط العادية floor(T/N) والمتبقي كان T − floor(T·k/N) ⇒ يسقط جزء من
   // الكسور بدل أن يُحصَّل في القسط الأخير، فيستلم البائع أقل من الثمن.
   it("مجموع الأقساط = الثمن بالضبط، والمتبقي = الثمن − المُحصَّل فعلاً (GPT-14)", async () => {

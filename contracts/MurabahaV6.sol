@@ -756,8 +756,16 @@ contract MurabahaV6 is
                 continue;
             }
             // FB-60: التصفية التلقائية فقط إذا فعّلها البائع
-            if (liq && offers[p.offerId].autoLiquidateEnabled)
-                return (true, abi.encode(pid));
+            // GPT-13 (المتبقي): فرع التأخّر في isLiquidatable لا يقرأ السعر، لكن التسوية
+            // (_settleByCollateral) تقرأ سعر الضمان. لا نقترح ما يتعذّر تنفيذه — وإلا فشل
+            // في performUpkeep وأُعيد اقتراحه كل جولة فتجمّد الطابور. يُلتقَط حين يعود السعر.
+            if (liq && offers[p.offerId].autoLiquidateEnabled) {
+                try this.quotePrice(p.collateralToken) returns (uint256) {
+                    return (true, abi.encode(pid));
+                } catch {
+                    continue;
+                }
+            }
             // FB-60: الدفع التلقائي فقط إذا فعّله المشتري
             // Build 18 (M-01): + شرط قابلية التحصيل — مركز برصيد/سماحية ناقصة يُتخطّى
             // بدل أن يحتلّ رأس الطابور ويحجب أتمتة بقية المراكز حتى GRACE.
