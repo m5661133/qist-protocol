@@ -102,14 +102,30 @@ export const OPS = [
   "payToCompletion", "liquidateUnderwater",
 ] as const;
 export type Op = (typeof OPS)[number];
+/** اسم الخطوة المفحوصة: مسار كامل، أو معاملة داخلية بصيغة «المسار:الداخلية» */
+export type Step = Op | `${Op}:${string}`;
+type Check = (step: Step) => Promise<void>;
+
+/**
+ * CAP-V3-01: فشل فحص الثوابت يُغلَّف بهذا النوع ليُعاد رميه دائماً — لا يُخلَط بـ«عملية
+ * غير صالحة» التي تبتلعها المرحلة العشوائية. وإلا مرّ ثابت مكسور في معاملة وسيطة صامتاً.
+ */
+export class InvariantFailure extends Error {
+  constructor(public step: Step, public cause: unknown) {
+    super(`ثابت مكسور بعد ${step}: ${(cause as any)?.message ?? cause}`);
+  }
+}
+async function guarded(check: Check | undefined, step: Step) {
+  if (!check) return;
+  try { await check(step); } catch (e) { throw e instanceof InvariantFailure ? e : new InvariantFailure(step, e); }
+}
 
 /**
  * ينفّذ مساراً واحداً على هدف صالح. يرمي إن لم يوجد هدف أو فشلت المعاملة.
  * @param check يُستدعى بعد كل معاملة **داخلية** ناجحة في المسارات المركّبة
  *              (withdrawExcess · payToCompletion) — حتى لا يفوت فحصُ الثوابت أيَّ انتقال.
  */
-export async function runOp(s: Scn, op: Op, r: (n: number) => number,
-                            check?: (op: Op) => Promise<void>) {
+export async function runOp(s: Scn, op: Op, r: (n: number) => number, check?: Check) {
   const pick = <T>(xs: T[]) => { if (!xs.length) throw new Error(`no target for ${op}`); return xs[r(xs.length)]; };
   const usdcAddr = await s.usdc.getAddress();
   switch (op) {
@@ -161,7 +177,7 @@ export async function runOp(s: Scn, op: Op, r: (n: number) => number,
       const add = isEth(p.collateralToken) ? await s.m.connect(who).addCollateral(id, 0, { value: extra })
                                            : await s.m.connect(who).addCollateral(id, extra);
       await add.wait();
-      if (check) await check("addCollateral");
+      await guarded(check, "withdrawExcess:addCollateral");
       return s.m.connect(who).withdrawExcessCollateral(id, extra / 2n);
     }
     case "payInstallment": {
@@ -193,7 +209,7 @@ export async function runOp(s: Scn, op: Op, r: (n: number) => number,
         tx = await s.m.connect(who).payInstallment(id);
         await tx.wait();
         if ((await s.m.positions(id)).state !== 0n) return tx; // القسط الأخير — COMPLETED
-        if (check) await check("payInstallment");
+        await guarded(check, "payToCompletion:payInstallment");
       }
     }
     case "liquidateUnderwater": {
@@ -230,19 +246,20 @@ export const MANDATORY: Op[] = [
 
 /**
  * يشغّل المرحلتين ويعيد عدّاد النجاح لكل مسار.
- * @param check يُستدعى بعد كل خطوة ناجحة (فحص الثوابت) — اختياري
+ * @param check يُستدعى بعد كل خطوة ناجحة (فحص الثوابت) — اختياري. فشله يُرمى دائماً (InvariantFailure).
+ * @param opts.skipMandatory للاختبار الانحداري فقط: يبدأ بالمرحلة العشوائية مباشرة
  */
 export async function runScenario(s: Scn, seed: number, randomSteps: number,
-                                  check?: (op: Op) => Promise<void>) {
+                                  check?: Check, opts: { skipMandatory?: boolean } = {}) {
   const r = rng(seed);
   const ok: Record<string, number> = Object.fromEntries(OPS.map((o) => [o, 0]));
   // المرحلة المُلزِمة: كل مسار هنا يجب أن ينجح فعلاً
   // إعادة تعبئة العروض قبل الشراء الثاني لكل نوع ضمان مضمونة بعرضين لكل أصل.
-  for (const op of MANDATORY) {
+  for (const op of opts.skipMandatory ? [] : MANDATORY) {
     const tx = await runOp(s, op, r, check);
     await tx.wait();
     ok[op]++;
-    if (check) await check(op);
+    await guarded(check, op);
   }
   // المرحلة العشوائية
   for (let i = 0; i < randomSteps; i++) {
@@ -251,8 +268,11 @@ export async function runScenario(s: Scn, seed: number, randomSteps: number,
       const tx = await runOp(s, op, r, check);
       await tx.wait();
       ok[op]++;
-    } catch { continue; } // لا هدف صالح أو رفض مشروع — يُحتسب فقط ما نجح
-    if (check) await check(op);
+    } catch (e) {
+      if (e instanceof InvariantFailure) throw e; // CAP-V3-01: لا يُبتلع أبداً
+      continue;                                   // لا هدف صالح أو رفض مشروع — يُحتسب فقط ما نجح
+    }
+    await guarded(check, op);
   }
   return ok;
 }

@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { deployScenario, runScenario, recomputeCustody, OPS } from "./helpers/custodyScenario";
+import { deployScenario, runScenario, recomputeCustody, OPS, InvariantFailure, Step } from "./helpers/custodyScenario";
 
 /**
  * يثبت — على العقد الحالي، قبل أي تعديل Solidity — أن مولّد السيناريوهات يغطّي فعلاً
@@ -38,4 +38,21 @@ describe("مولّد سيناريوهات العهدة — تغطية كل ال�
     expect(reasons, "لا تصفية بالتأخّر").to.include("overdue");
     console.log("      نجاحات:", JSON.stringify(ok));
   });
+
+  // CAP-V3-01 (مراجعة جبتي): فشل ثابت في معاملة **داخلية** أثناء المرحلة **العشوائية**
+  // (حيث catch يبتلع العمليات غير الصالحة) يجب أن يُسقط السيناريو بالخطأ نفسه.
+  for (const inner of ["withdrawExcess:addCollateral", "payToCompletion:payInstallment"] as Step[]) {
+    it(`فشل الثابت داخل ${inner} في المرحلة العشوائية لا يُبتلع`, async () => {
+      const s = await deployScenario();
+      let thrown: unknown;
+      try {
+        await runScenario(s, 7, 300, async (step) => {
+          if (step === inner) throw new Error("ثابت مكسور مفروض");
+        }, { skipMandatory: true });
+      } catch (e) { thrown = e; }
+      expect(thrown, "السيناريو أكمل رغم فشل الثابت").to.be.instanceOf(InvariantFailure);
+      expect((thrown as InvariantFailure).step).to.equal(inner);
+      expect((thrown as InvariantFailure).message).to.include("ثابت مكسور مفروض");
+    });
+  }
 });
