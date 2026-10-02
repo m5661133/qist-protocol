@@ -1,0 +1,2740 @@
+[
+ {
+  "inputs": [],
+  "stateMutability": "nonpayable",
+  "type": "constructor"
+ },
+ {
+  "inputs": [],
+  "name": "AccountingFault",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "target",
+    "type": "address"
+   }
+  ],
+  "name": "AddressEmptyCode",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "CannotWithdrawUserAsset",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "implementation",
+    "type": "address"
+   }
+  ],
+  "name": "ERC1967InvalidImplementation",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "ERC1967NonPayable",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "EnforcedPause",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "ExpectedPause",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "FailedCall",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "exposureUSDC",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "capUSDC",
+    "type": "uint256"
+   }
+  ],
+  "name": "GlobalCapExceeded",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "current",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "minimum",
+    "type": "uint256"
+   }
+  ],
+  "name": "HealthFactorTooLow",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "InvalidInitialization",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "InvalidParams",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "IsStablecoin",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NewCommitmentsPaused",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotAuthorized",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotBuyer",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotDueYet",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotInitializing",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotLiquidatableYet",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotSeller",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotStablecoin",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "offersUSDC",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "capUSDC",
+    "type": "uint256"
+   }
+  ],
+  "name": "OfferCapExceeded",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "OfferNotActive",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "owner",
+    "type": "address"
+   }
+  ],
+  "name": "OwnableInvalidOwner",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "account",
+    "type": "address"
+   }
+  ],
+  "name": "OwnableUnauthorizedAccount",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "PositionNotActive",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "ReentrancyGuardReentrantCall",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "RenounceOwnershipDisabled",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   }
+  ],
+  "name": "SafeERC20FailedOperation",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "SequencerDown",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "SequencerGracePeriodNotOver",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "StalePrice",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TokenNotSupported",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TransferFailed",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "UUPSUnauthorizedCallContext",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "bytes32",
+    "name": "slot",
+    "type": "bytes32"
+   }
+  ],
+  "name": "UUPSUnsupportedProxiableUUID",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "ZeroAmount",
+  "type": "error"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "had",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "removed",
+    "type": "uint256"
+   }
+  ],
+  "name": "AccountingFaultDetected",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "autoFee",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "bool",
+    "name": "isLiquidationFee",
+    "type": "bool"
+   }
+  ],
+  "name": "AutoFeeCollected",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "oldTreasury",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "newTreasury",
+    "type": "address"
+   }
+  ],
+  "name": "BrokerTreasurySet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "saleToken",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "sellerFee",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "buyerFee",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "protocolFee",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "brokerTreasury",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "protocolTreasury",
+    "type": "address"
+   }
+  ],
+  "name": "BrokerageCollected",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint16",
+    "name": "oldBps",
+    "type": "uint16"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint16",
+    "name": "newBps",
+    "type": "uint16"
+   }
+  ],
+  "name": "BrokerageFeeSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "int256",
+    "name": "delta",
+    "type": "int256"
+   }
+  ],
+  "name": "CollateralChanged",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "account",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "Credited",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "globalCapUSDC",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "commitmentCapUSDC",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "offerCapUSDC",
+    "type": "uint256"
+   }
+  ],
+  "name": "CustodyCapsSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "amountPayment",
+    "type": "uint256"
+   }
+  ],
+  "name": "EarlyRepaidCash",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "sellerCollateral",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "buyerRefund",
+    "type": "uint256"
+   }
+  ],
+  "name": "EarlyRepaidCollateral",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "to",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "EmergencyWithdrawn",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "oldGuardian",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "newGuardian",
+    "type": "address"
+   }
+  ],
+  "name": "GuardianSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint64",
+    "name": "version",
+    "type": "uint64"
+   }
+  ],
+  "name": "Initialized",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint8",
+    "name": "installment",
+    "type": "uint8"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "InstallmentPaid",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "oldKeeper",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "newKeeper",
+    "type": "address"
+   }
+  ],
+  "name": "KeeperSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "maxPositionValueUSDC",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "maxActivePositions",
+    "type": "uint256"
+   }
+  ],
+  "name": "LaunchCapsSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   }
+  ],
+  "name": "OfferCancelled",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "seller",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "saleToken",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "collateralToken",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "paymentToken",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint8",
+    "name": "minInstallments",
+    "type": "uint8"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint8",
+    "name": "maxInstallments",
+    "type": "uint8"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint32",
+    "name": "paymentInterval",
+    "type": "uint32"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "minPurchaseAmount",
+    "type": "uint256"
+   }
+  ],
+  "name": "OfferCreated",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "withdrawn",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "remaining",
+    "type": "uint256"
+   }
+  ],
+  "name": "OfferDecreased",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "added",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "newTotal",
+    "type": "uint256"
+   }
+  ],
+  "name": "OfferIncreased",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "previousOwner",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "newOwner",
+    "type": "address"
+   }
+  ],
+  "name": "OwnershipTransferred",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "purchasedAmount",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "remainingInOffer",
+    "type": "uint256"
+   }
+  ],
+  "name": "PartialPurchaseCreated",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "account",
+    "type": "address"
+   }
+  ],
+  "name": "Paused",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "collateralReturned",
+    "type": "uint256"
+   }
+  ],
+  "name": "PositionCompleted",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "sellerCollateral",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "buyerRefund",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "string",
+    "name": "reason",
+    "type": "string"
+   }
+  ],
+  "name": "PositionLiquidated",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint16",
+    "name": "oldBps",
+    "type": "uint16"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint16",
+    "name": "newBps",
+    "type": "uint16"
+   }
+  ],
+  "name": "ProtocolFeeSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "oldTreasury",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "newTreasury",
+    "type": "address"
+   }
+  ],
+  "name": "ProtocolTreasurySet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "buyer",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "saleAmount",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "collateralAmount",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "totalPayable",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint8",
+    "name": "selectedInstallments",
+    "type": "uint8"
+   }
+  ],
+  "name": "Purchased",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "feed",
+    "type": "address"
+   }
+  ],
+  "name": "SequencerFeedSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "feed",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint8",
+    "name": "decimals",
+    "type": "uint8"
+   },
+   {
+    "indexed": false,
+    "internalType": "bool",
+    "name": "isStablecoin",
+    "type": "bool"
+   }
+  ],
+  "name": "TokenAdded",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "oldFeed",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "newFeed",
+    "type": "address"
+   }
+  ],
+  "name": "TokenFeedChanged",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   }
+  ],
+  "name": "TokenRemoved",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "account",
+    "type": "address"
+   }
+  ],
+  "name": "Unpaused",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "implementation",
+    "type": "address"
+   }
+  ],
+  "name": "Upgraded",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "bytes",
+    "name": "reason",
+    "type": "bytes"
+   }
+  ],
+  "name": "UpkeepFailed",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "account",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "Withdrawn",
+  "type": "event"
+ },
+ {
+  "inputs": [],
+  "name": "GRACE_PERIOD",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "LIQUIDATION_THRESHOLD_BPS",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "MAX_COLLATERAL_RATIO_BPS",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "MIN_COLLATERAL_RATIO_BPS",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "SLIPPAGE_TOLERANCE_BPS",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "UPGRADE_INTERFACE_VERSION",
+  "outputs": [
+   {
+    "internalType": "string",
+    "name": "",
+    "type": "string"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "accountingFault",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "activePositionsCount",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "addCollateral",
+  "outputs": [],
+  "stateMutability": "payable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "feed",
+    "type": "address"
+   },
+   {
+    "internalType": "uint8",
+    "name": "decimals",
+    "type": "uint8"
+   },
+   {
+    "internalType": "bool",
+    "name": "isStablecoin",
+    "type": "bool"
+   }
+  ],
+  "name": "addSupportedToken",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "brokerTreasury",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "brokerageFeeBps",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "purchaseAmount",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "collateralAmount",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "quotedSalePrice",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint8",
+    "name": "selectedInstallments",
+    "type": "uint8"
+   },
+   {
+    "internalType": "bool",
+    "name": "enableAutoPay",
+    "type": "bool"
+   }
+  ],
+  "name": "buy",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "payable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   }
+  ],
+  "name": "cancelOffer",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "bytes",
+    "name": "",
+    "type": "bytes"
+   }
+  ],
+  "name": "checkUpkeep",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "upkeepNeeded",
+    "type": "bool"
+   },
+   {
+    "internalType": "bytes",
+    "name": "performData",
+    "type": "bytes"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "name": "collateralCustody",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "commitmentCapUSDC",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "saleToken",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "collateralToken",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "paymentToken",
+    "type": "address"
+   },
+   {
+    "internalType": "uint256",
+    "name": "saleAmount",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint16",
+    "name": "profitBps",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint8",
+    "name": "minInstallments",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint8",
+    "name": "maxInstallments",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint32",
+    "name": "paymentInterval",
+    "type": "uint32"
+   },
+   {
+    "internalType": "uint256",
+    "name": "minPurchaseAmount",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint16",
+    "name": "collateralRatioBps",
+    "type": "uint16"
+   },
+   {
+    "internalType": "bool",
+    "name": "enableAutoLiquidate",
+    "type": "bool"
+   }
+  ],
+  "name": "createOffer",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "payable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "decreaseOffer",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "earlyRepayCash",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "earlyRepayWithCollateral",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "emergencyWithdraw",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "purchaseAmount",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint8",
+    "name": "selectedInstallments",
+    "type": "uint8"
+   }
+  ],
+  "name": "estimatePurchase",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "totalPayable",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "installmentAmount",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "requiredCollateralUSDC",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint16",
+    "name": "effectiveProfitBps",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint256",
+    "name": "netToBuyer",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "getInstallmentAmount",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "id",
+    "type": "uint256"
+   }
+  ],
+  "name": "getOffer",
+  "outputs": [
+   {
+    "components": [
+     {
+      "internalType": "address",
+      "name": "seller",
+      "type": "address"
+     },
+     {
+      "internalType": "address",
+      "name": "saleToken",
+      "type": "address"
+     },
+     {
+      "internalType": "address",
+      "name": "collateralToken",
+      "type": "address"
+     },
+     {
+      "internalType": "address",
+      "name": "paymentToken",
+      "type": "address"
+     },
+     {
+      "internalType": "uint256",
+      "name": "totalAmount",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint256",
+      "name": "saleAmount",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint256",
+      "name": "minPurchaseAmount",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint16",
+      "name": "profitBps",
+      "type": "uint16"
+     },
+     {
+      "internalType": "uint8",
+      "name": "minInstallments",
+      "type": "uint8"
+     },
+     {
+      "internalType": "uint8",
+      "name": "maxInstallments",
+      "type": "uint8"
+     },
+     {
+      "internalType": "uint32",
+      "name": "paymentInterval",
+      "type": "uint32"
+     },
+     {
+      "internalType": "uint16",
+      "name": "collateralRatioBps",
+      "type": "uint16"
+     },
+     {
+      "internalType": "enum OfferState",
+      "name": "state",
+      "type": "uint8"
+     },
+     {
+      "internalType": "bool",
+      "name": "autoLiquidateEnabled",
+      "type": "bool"
+     }
+    ],
+    "internalType": "struct Offer",
+    "name": "",
+    "type": "tuple"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "seller",
+    "type": "address"
+   }
+  ],
+  "name": "getOffersBySeller",
+  "outputs": [
+   {
+    "internalType": "uint256[]",
+    "name": "",
+    "type": "uint256[]"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "id",
+    "type": "uint256"
+   }
+  ],
+  "name": "getPosition",
+  "outputs": [
+   {
+    "components": [
+     {
+      "internalType": "uint256",
+      "name": "offerId",
+      "type": "uint256"
+     },
+     {
+      "internalType": "address",
+      "name": "buyer",
+      "type": "address"
+     },
+     {
+      "internalType": "address",
+      "name": "saleToken",
+      "type": "address"
+     },
+     {
+      "internalType": "address",
+      "name": "collateralToken",
+      "type": "address"
+     },
+     {
+      "internalType": "address",
+      "name": "paymentToken",
+      "type": "address"
+     },
+     {
+      "internalType": "uint256",
+      "name": "saleAmount",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint256",
+      "name": "collateralAmount",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint256",
+      "name": "totalPayable",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint8",
+      "name": "totalInstallments",
+      "type": "uint8"
+     },
+     {
+      "internalType": "uint8",
+      "name": "paidInstallments",
+      "type": "uint8"
+     },
+     {
+      "internalType": "uint32",
+      "name": "paymentInterval",
+      "type": "uint32"
+     },
+     {
+      "internalType": "uint256",
+      "name": "nextDueDate",
+      "type": "uint256"
+     },
+     {
+      "internalType": "enum PositionState",
+      "name": "state",
+      "type": "uint8"
+     },
+     {
+      "internalType": "bool",
+      "name": "autoPayEnabled",
+      "type": "bool"
+     }
+    ],
+    "internalType": "struct Position",
+    "name": "",
+    "type": "tuple"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "buyer",
+    "type": "address"
+   }
+  ],
+  "name": "getPositionsByBuyer",
+  "outputs": [
+   {
+    "internalType": "uint256[]",
+    "name": "",
+    "type": "uint256[]"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "getRemainingDebt",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "getSupportedTokens",
+  "outputs": [
+   {
+    "internalType": "address[]",
+    "name": "",
+    "type": "address[]"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "globalCapUSDC",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "guardian",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "healthFactor",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "offerId",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "increaseOffer",
+  "outputs": [],
+  "stateMutability": "payable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "_usdc",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "_wbtc",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "_ethFeed",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "_btcFeed",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "_brokerTreasury",
+    "type": "address"
+   },
+   {
+    "internalType": "address",
+    "name": "_protocolTreasury",
+    "type": "address"
+   }
+  ],
+  "name": "initialize",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "globalCap",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "commitmentCap",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "offerCap",
+    "type": "uint256"
+   }
+  ],
+  "name": "initializeV3",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "isLiquidatable",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
+   },
+   {
+    "internalType": "string",
+    "name": "",
+    "type": "string"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "keeper",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "liquidatePositionPublic",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "maxActivePositions",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "maxPositionValueUSDC",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "nextOfferId",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "nextPositionId",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "offerCapUSDC",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "name": "offerCustody",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "owner",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "pause",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "paused",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "payInstallment",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "account",
+    "type": "address"
+   }
+  ],
+  "name": "pendingETH",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "bytes",
+    "name": "performData",
+    "type": "bytes"
+   }
+  ],
+  "name": "performUpkeep",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "bytes",
+    "name": "performData",
+    "type": "bytes"
+   }
+  ],
+  "name": "performUpkeepChecked",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   }
+  ],
+  "name": "processInstallmentPublic",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "protocolFeeBps",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "protocolTreasury",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "proxiableUUID",
+  "outputs": [
+   {
+    "internalType": "bytes32",
+    "name": "",
+    "type": "bytes32"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   }
+  ],
+  "name": "quotePrice",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address[]",
+    "name": "tokens",
+    "type": "address[]"
+   },
+   {
+    "internalType": "uint256[]",
+    "name": "offerValues",
+    "type": "uint256[]"
+   },
+   {
+    "internalType": "uint256[]",
+    "name": "collateralValues",
+    "type": "uint256[]"
+   }
+  ],
+  "name": "reconcileCustody",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   }
+  ],
+  "name": "removeSupportedToken",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "renounceOwnership",
+  "outputs": [],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "sequencerUptimeFeed",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "r",
+    "type": "address"
+   }
+  ],
+  "name": "setBrokerTreasury",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint16",
+    "name": "bps",
+    "type": "uint16"
+   }
+  ],
+  "name": "setBrokerageFee",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "globalCap",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "commitmentCap",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "offerCap",
+    "type": "uint256"
+   }
+  ],
+  "name": "setCustodyCaps",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "g",
+    "type": "address"
+   }
+  ],
+  "name": "setGuardian",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "k",
+    "type": "address"
+   }
+  ],
+  "name": "setKeeper",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "maxPosValueUSDC",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "maxActivePos",
+    "type": "uint256"
+   }
+  ],
+  "name": "setLaunchCaps",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint16",
+    "name": "bps",
+    "type": "uint16"
+   }
+  ],
+  "name": "setProtocolFee",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "r",
+    "type": "address"
+   }
+  ],
+  "name": "setProtocolTreasury",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "feed",
+    "type": "address"
+   }
+  ],
+  "name": "setSequencerUptimeFeed",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "name": "tokenConfigs",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "chainlinkFeed",
+    "type": "address"
+   },
+   {
+    "internalType": "uint8",
+    "name": "decimals",
+    "type": "uint8"
+   },
+   {
+    "internalType": "bool",
+    "name": "isStablecoin",
+    "type": "bool"
+   },
+   {
+    "internalType": "bool",
+    "name": "active",
+    "type": "bool"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "totalExposureUSDC",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "totalPendingETH",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "newOwner",
+    "type": "address"
+   }
+  ],
+  "name": "transferOwnership",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "unpause",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "newImplementation",
+    "type": "address"
+   },
+   {
+    "internalType": "bytes",
+    "name": "data",
+    "type": "bytes"
+   }
+  ],
+  "name": "upgradeToAndCall",
+  "outputs": [],
+  "stateMutability": "payable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "withdrawETH",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "positionId",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   }
+  ],
+  "name": "withdrawExcessCollateral",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "stateMutability": "payable",
+  "type": "receive"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "internalType": "uint256",
+    "name": "balance",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "owed",
+    "type": "uint256"
+   }
+  ],
+  "name": "CustodyInsolvent",
+  "type": "error"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "oldOffer",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "oldCollateral",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "newOffer",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "newCollateral",
+    "type": "uint256"
+   }
+  ],
+  "name": "CustodyReconciled",
+  "type": "event"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "cap",
+    "type": "uint256"
+   }
+  ],
+  "name": "ActivePositionsCapReached",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "amount",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "minimum",
+    "type": "uint256"
+   }
+  ],
+  "name": "BelowMinPurchase",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "EffectiveProfitTooLow",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "provided",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "required",
+    "type": "uint256"
+   }
+  ],
+  "name": "InsufficientCollateral",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint8",
+    "name": "selected",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint8",
+    "name": "min",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint8",
+    "name": "max",
+    "type": "uint8"
+   }
+  ],
+  "name": "InvalidInstallments",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "totalPayable",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "cap",
+    "type": "uint256"
+   }
+  ],
+  "name": "PositionExceedsCap",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "SelfBuyNotAllowed",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "quoted",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "current",
+    "type": "uint256"
+   }
+  ],
+  "name": "SlippageExceeded",
+  "type": "error"
+ }
+]

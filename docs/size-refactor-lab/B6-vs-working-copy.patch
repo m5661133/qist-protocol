@@ -1,0 +1,2380 @@
+diff --git a/contracts/MurabahaV6.sol b/contracts/MurabahaV6.sol
+index 6b81e75..d78c60e 100644
+--- a/contracts/MurabahaV6.sol
++++ b/contracts/MurabahaV6.sol
+@@ -15,6 +15,10 @@ import {PriceLib} from "./libraries/PriceLib.sol";
+ import {MurabahaMath} from "./libraries/MurabahaMath.sol";
+ import {TransferLib} from "./libraries/TransferLib.sol";
+ import {CustodyLib} from "./libraries/CustodyLib.sol";
++import {BuyLogic} from "./libraries/BuyLogic.sol";
++import {OfferLogic} from "./libraries/OfferLogic.sol";
++import {AutomationLogic} from "./libraries/AutomationLogic.sol";
++import {PricingLib} from "./libraries/PricingLib.sol";
+ import {TokenConfig, OfferState, PositionState, Offer, Position} from "./libraries/MurabahaTypes.sol";
+ 
+ /**
+@@ -44,23 +48,23 @@ contract MurabahaV6 is
+     // ═══════════ ثوابت ═══════════
+ 
+     uint256 internal constant BPS = 10000;
+-    uint16 public constant MIN_COLLATERAL_RATIO_BPS  = 11000; // 110% — أقل نسبة ضمان يقبلها العقد
+-    uint16 public constant MAX_COLLATERAL_RATIO_BPS  = 20000; // 200% — أعلى نسبة ضمان مسموحة
++    uint16 public constant MIN_COLLATERAL_RATIO_BPS = OfferLogic.MIN_COLLATERAL_RATIO_BPS; // 110% — أقل نسبة ضمان يقبلها العقد
++    uint16 public constant MAX_COLLATERAL_RATIO_BPS = OfferLogic.MAX_COLLATERAL_RATIO_BPS; // 200% — أعلى نسبة ضمان مسموحة
+     uint16 public constant LIQUIDATION_THRESHOLD_BPS = 10500; // 105%
+-    uint16 public constant MAX_PROTOCOL_FEE_BPS      = 300;
+-    uint16 public constant MAX_BROKERAGE_FEE_BPS     = 100;
+-    uint16 public constant MAX_PROFIT_BPS            = 30000; // 300% — السوق عرض وطلب؛ الحد لتفادي خطأ بشري فقط
++    uint16 internal constant MAX_PROTOCOL_FEE_BPS      = 300;
++    uint16 internal constant MAX_BROKERAGE_FEE_BPS     = 100;
++    uint16 internal constant MAX_PROFIT_BPS = OfferLogic.MAX_PROFIT_BPS; // 300% — السوق عرض وطلب؛ الحد لتفادي خطأ بشري فقط
+     uint16 public constant SLIPPAGE_TOLERANCE_BPS    = 100;   // 1%
+-    uint32 public constant INTERVAL_MINUTE = 60;
+-    uint32 public constant INTERVAL_DAY    = 1 days;
+-    uint32 public constant INTERVAL_MONTH  = 30 days;
+-    uint32 public constant MIN_PAYMENT_INTERVAL = 60;
+-    uint32 public constant MAX_PAYMENT_INTERVAL = 365 days;
++    uint32 internal constant INTERVAL_MINUTE = 60;
++    uint32 internal constant INTERVAL_DAY    = 1 days;
++    uint32 internal constant INTERVAL_MONTH  = 30 days;
++    uint32 internal constant MIN_PAYMENT_INTERVAL = OfferLogic.MIN_PAYMENT_INTERVAL;
++    uint32 internal constant MAX_PAYMENT_INTERVAL = OfferLogic.MAX_PAYMENT_INTERVAL;
+     uint256 public constant GRACE_PERIOD = 3 days; // 259200s — مهلة الإنتاج (رفق بالمدين قبل التصفية)
+ 
+     // ═══════════ FB-60: رسوم الأتمتة الاختيارية ═══════════
+-    uint16 public constant AUTO_PAY_FEE_BPS        = 30;  // 0.3% إضافية على كل قسط تلقائي
+-    uint16 public constant AUTO_LIQUIDATE_FEE_BPS  = 50;  // 0.5% من حصة البائع عند التصفية التلقائية
++    uint16 internal constant AUTO_PAY_FEE_BPS        = AutomationLogic.AUTO_PAY_FEE_BPS;  // 0.3% إضافية على كل قسط تلقائي
++    uint16 internal constant AUTO_LIQUIDATE_FEE_BPS  = 50;  // 0.5% من حصة البائع عند التصفية التلقائية
+ 
+     // ═══════════ D-019: إعدادات التوكن ═══════════
+     // Build 22: TokenConfig/Offer/Position/الحالات نُقلت كما هي إلى libraries/MurabahaTypes.sol
+@@ -68,15 +72,15 @@ contract MurabahaV6 is
+     /// @notice address(0) = ETH
+     mapping(address => TokenConfig) public tokenConfigs;
+     /// @notice قائمة كل التوكنات للاستعراض
+-    address[] public tokenList;
++    address[] internal tokenList;
+ 
+     // ═══════════ متغيرات قديمة — محفوظة لتوافق Storage مع الـ Proxy الحالي ═══════════
+     // ⚠️ لا تُستخدم في المنطق الجديد — tokenConfigs تحل محلها
+     // ⚠️ لا تحذف هذه المتغيرات أبداً — حذفها يكسر تخطيط الـ Storage في الـ Proxy
+-    IERC20 public usdc;
+-    IERC20 public wbtc;
+-    IChainlinkFeed public ethFeed;
+-    IChainlinkFeed public btcFeed;
++    IERC20 internal usdc;
++    IERC20 internal wbtc;
++    IChainlinkFeed internal ethFeed;
++    IChainlinkFeed internal btcFeed;
+     // ════════════════════════════════════════════════════════════════════════
+ 
+     uint16  public brokerageFeeBps;
+@@ -87,8 +91,8 @@ contract MurabahaV6 is
+     uint256 public nextOfferId;
+     uint256 public nextPositionId;
+ 
+-    mapping(uint256 => Offer)     public offers;
+-    mapping(uint256 => Position)  public positions;
++    mapping(uint256 => Offer)     internal offers;
++    mapping(uint256 => Position)  internal positions;
+     mapping(address => uint256[]) private _sellerOffers;
+     mapping(address => uint256[]) private _buyerPositions;
+     TransferLib.Ledger private _pendingETH;
+@@ -137,7 +141,7 @@ contract MurabahaV6 is
+     bool public accountingFault;
+ 
+     /// @dev سقف صحة المركز لإضافة ضمان داخل احتياطي الإنقاذ (150%) — إنقاذ لا ركن
+-    uint16 public constant RESCUE_HF_BPS = 15000;
++    uint16 internal constant RESCUE_HF_BPS = 15000;
+ 
+     // ═══════════ Events ═══════════
+ 
+@@ -217,19 +221,6 @@ contract MurabahaV6 is
+         _registerToken(_usdc,  address(0), 6,  true);  // USDC — ستابل
+     }
+ 
+-    /**
+-     * @notice Upgrade initializer — للـ Proxy الموجود على Sepolia
+-     * @dev يُستدعى عبر upgradeToAndCall() عند الترقية من نسخة سابقة
+-     */
+-    function initializeV2() external reinitializer(2) onlyOwner {
+-        // ترحيل المتغيرات القديمة إلى tokenConfigs
+-        if (address(ethFeed) != address(0))
+-            _registerToken(address(0), address(ethFeed), 18, false);
+-        if (address(wbtc) != address(0) && address(btcFeed) != address(0))
+-            _registerToken(address(wbtc), address(btcFeed), 8, false);
+-        if (address(usdc) != address(0))
+-            _registerToken(address(usdc), address(0), 6, true);
+-    }
+ 
+     /// @dev UUPS: فقط المالك يقدر يرقّي العقد
+     function _authorizeUpgrade(address) internal override onlyOwner {}
+@@ -342,43 +333,22 @@ contract MurabahaV6 is
+             IERC20(saleToken).safeTransferFrom(msg.sender, address(this), amount);
+         }
+ 
+-        uint256 offerId = _createOffer(saleToken, collateralToken, paymentToken, amount, profitBps,
+-            minInstallments, maxInstallments, paymentInterval, minPurchaseAmount,
+-            collateralRatioBps, enableAutoLiquidate);
++        // Build 22: فحص المعاملات وكتابة العرض في OfferLogic (منقول حرفياً من _createOffer)
++        uint256 offerId = nextOfferId++;
++        OfferLogic.record(offers, _sellerOffers, offerId, OfferLogic.NewOffer({
++            saleToken: saleToken, collateralToken: collateralToken, paymentToken: paymentToken,
++            saleAmount: amount, profitBps: profitBps,
++            minInstallments: minInstallments, maxInstallments: maxInstallments,
++            paymentInterval: paymentInterval, minPurchaseAmount: minPurchaseAmount,
++            collateralRatioBps: collateralRatioBps, enableAutoLiquidate: enableAutoLiquidate
++        }));
++        emit OfferCreated(offerId, msg.sender, saleToken, collateralToken, paymentToken,
++            amount, minInstallments, maxInstallments, paymentInterval, minPurchaseAmount);
+         offerCustody[saleToken] += amount; // Build 22: الدلو A
+         _enforceCap(CAP_OFFER);
+         return offerId;
+     }
+ 
+-    function _createOffer(
+-        address saleToken, address collateralToken, address paymentToken,
+-        uint256 saleAmount, uint16 profitBps,
+-        uint8 minInstallments, uint8 maxInstallments,
+-        uint32 paymentInterval, uint256 minPurchaseAmount,
+-        uint16 collateralRatioBps, bool enableAutoLiquidate
+-    ) internal returns (uint256 offerId) {
+-        if (saleAmount == 0 || maxInstallments == 0 || minInstallments == 0) revert Errors.InvalidParams();
+-        if (minInstallments > maxInstallments)          revert Errors.InvalidParams();
+-        if (profitBps > MAX_PROFIT_BPS)                 revert Errors.InvalidParams();
+-        if (collateralRatioBps < MIN_COLLATERAL_RATIO_BPS) revert Errors.InvalidParams(); // < 110%
+-        if (collateralRatioBps > MAX_COLLATERAL_RATIO_BPS) revert Errors.InvalidParams(); // > 200%
+-        if (paymentInterval < MIN_PAYMENT_INTERVAL)     revert Errors.InvalidParams();
+-        if (paymentInterval > MAX_PAYMENT_INTERVAL)     revert Errors.InvalidParams();
+-
+-        offerId = nextOfferId++;
+-        offers[offerId] = Offer({
+-            seller: msg.sender, saleToken: saleToken, collateralToken: collateralToken,
+-            paymentToken: paymentToken, totalAmount: saleAmount, saleAmount: saleAmount,
+-            minPurchaseAmount: minPurchaseAmount, profitBps: profitBps,
+-            minInstallments: minInstallments, maxInstallments: maxInstallments,
+-            paymentInterval: paymentInterval, collateralRatioBps: collateralRatioBps,
+-            state: OfferState.ACTIVE,
+-            autoLiquidateEnabled: enableAutoLiquidate  // FB-60
+-        });
+-        _sellerOffers[msg.sender].push(offerId);
+-        emit OfferCreated(offerId, msg.sender, saleToken, collateralToken, paymentToken,
+-            saleAmount, minInstallments, maxInstallments, paymentInterval, minPurchaseAmount);
+-    }
+ 
+     /// @notice يزيد كمية العرض
+     function increaseOffer(uint256 offerId, uint256 amount) external payable whenNotPaused nonReentrant {
+@@ -467,59 +437,21 @@ contract MurabahaV6 is
+         uint256 quotedSalePrice, uint8 selectedInstallments, bool enableAutoPay
+     ) internal returns (uint256 positionId) {
+         Offer storage o = offers[offerId];
+-        if (o.state != OfferState.ACTIVE)  revert Errors.OfferNotActive();
+-
+-        // GPT-09: الشراء التزام جديد ⇒ يُحكَم بـ`active` كـ`createOffer`. التسعير بعده يفحص
+-        // التسجيل وحده (GPT-01)، فبدون هذا يفتح عرضٌ سابق مركزاً جديداً برمزٍ مُطفأ.
+-        if (!tokenConfigs[o.saleToken].active)       revert Errors.TokenNotSupported();
+-        if (!tokenConfigs[o.collateralToken].active) revert Errors.TokenNotSupported();
+-        if (!tokenConfigs[o.paymentToken].active)    revert Errors.TokenNotSupported();
+-
+-        // ═══════════ FB-31: حماية ضد Self-Buy (شرعي + أمني) ═══════════
+-        // المرابحة عقد بين طرفين مختلفين. شراء البائع لنفسه = بيع العينة (محرّم).
+-        // كما يمنع: التلاعب بـ TVL، ضخّ كاذب، استرداد رسوم البروتوكول بالخطأ.
+-        if (o.seller == msg.sender) revert Errors.SelfBuyNotAllowed();
+-        // ════════════════════════════════════════════════════════════
+-
+-        if (purchaseAmount == 0 || purchaseAmount > o.saleAmount) revert Errors.InvalidParams();
+-        if (o.minPurchaseAmount > 0 && purchaseAmount < o.minPurchaseAmount)
+-            revert Errors.BelowMinPurchase(purchaseAmount, o.minPurchaseAmount);
+-        if (selectedInstallments < o.minInstallments || selectedInstallments > o.maxInstallments)
+-            revert Errors.InvalidInstallments(selectedInstallments, o.minInstallments, o.maxInstallments);
+-
+-        // D-018: فحص الانزلاق
+-        uint256 salePrice = _tokenPriceUSDC(o.saleToken);
+-        PriceLib.checkSlippage(quotedSalePrice, salePrice, SLIPPAGE_TOLERANCE_BPS);
+-
+-        // D-012: العمولات من أصل البيع
+-        uint256 sellerFee      = (purchaseAmount * brokerageFeeBps) / BPS;
+-        uint256 buyerFee       = (purchaseAmount * brokerageFeeBps) / BPS;
+-        uint256 protocolFeeAmt = (purchaseAmount * protocolFeeBps)  / BPS;
+-        uint256 netToBuyer     = purchaseAmount - sellerFee - buyerFee - protocolFeeAmt;
+-
+-        // الربح التناسبي
+-        uint16 effectiveProfitBps = uint16(
+-            (uint256(o.profitBps) * selectedInstallments) / o.maxInstallments
+-        );
+-        if (o.profitBps > 0 && effectiveProfitBps == 0) revert Errors.EffectiveProfitTooLow();
+-
+-        // قيمة الصافي المُستلَم بالـ paymentToken (6 dec)
+-        uint256 saleValueUSDC = PriceLib.assetToUSDC(
+-            netToBuyer, salePrice, tokenConfigs[o.saleToken].decimals
+-        );
+-        uint256 totalPayable = MurabahaMath.sellingPrice(saleValueUSDC, effectiveProfitBps);
+-
+-        // D-008: تقييم الضمان
+-        uint256 collateralValueUSDC = _tokenValueUSDC(o.collateralToken, collateralAmount);
+-        uint256 requiredValue       = MurabahaMath.requiredCollateralUSDC(totalPayable, o.collateralRatioBps);
+-        if (collateralValueUSDC < requiredValue)
+-            revert Errors.InsufficientCollateral(collateralValueUSDC, requiredValue);
+-
+-        // ── Build 20: سقف الإطلاق المحروس (يحدّ الخسارة القصوى قبل التدقيق المحترف) ──
+-        if (maxPositionValueUSDC != 0 && totalPayable > maxPositionValueUSDC)
+-            revert Errors.PositionExceedsCap(totalPayable, maxPositionValueUSDC);
+-        if (maxActivePositions != 0 && _activePositionIds.length >= maxActivePositions)
+-            revert Errors.ActivePositionsCapReached(maxActivePositions);
++        // Build 22: الفحوصات والتسعير والحسابات في BuyLogic (منقولة حرفياً وبنفس ترتيب الأخطاء).
++        // التأثيرات والتحويلات والأحداث باقية هنا كما هي.
++        BuyLogic.Quote memory q = BuyLogic.quote(o, tokenConfigs, BuyLogic.Params({
++            purchaseAmount: purchaseAmount,
++            collateralAmount: collateralAmount,
++            quotedSalePrice: quotedSalePrice,
++            selectedInstallments: selectedInstallments,
++            brokerageFeeBps: brokerageFeeBps,
++            protocolFeeBps: protocolFeeBps,
++            slippageToleranceBps: SLIPPAGE_TOLERANCE_BPS,
++            maxPositionValueUSDC: maxPositionValueUSDC,
++            maxActivePositions: maxActivePositions,
++            activePositions: _activePositionIds.length,
++            sequencer: sequencerUptimeFeed
++        }));
+ 
+         // ── Effects ──
+         o.saleAmount -= purchaseAmount;
+@@ -528,26 +460,18 @@ contract MurabahaV6 is
+         collateralCustody[o.collateralToken] += collateralAmount;    // Build 22: B
+ 
+         positionId = nextPositionId++;
+-        positions[positionId] = Position({
+-            offerId: offerId, buyer: msg.sender,
+-            saleToken: o.saleToken, collateralToken: o.collateralToken, paymentToken: o.paymentToken,
+-            saleAmount: netToBuyer, collateralAmount: collateralAmount,
+-            totalPayable: totalPayable, totalInstallments: selectedInstallments,
+-            paidInstallments: 0, paymentInterval: o.paymentInterval,
+-            nextDueDate: block.timestamp + o.paymentInterval, state: PositionState.ACTIVE,
+-            autoPayEnabled: enableAutoPay  // FB-60
+-        });
+-        _buyerPositions[msg.sender].push(positionId);
+-        _addActivePosition(positionId); // M-01: أضِف للفهرس النشط
++        BuyLogic.record(positions, _buyerPositions, _activePositionIds, _activePositionIndex, o,
++            positionId, offerId, q.netToBuyer, collateralAmount, q.totalPayable,
++            selectedInstallments, enableAutoPay); // Build 22: المركز + الفهرسان (M-01)
+ 
+         // ── Interactions ──
+-        if (sellerFee + buyerFee > 0) _deliverToken(o.saleToken, brokerTreasury,  sellerFee + buyerFee);
+-        if (protocolFeeAmt > 0)       _deliverToken(o.saleToken, protocolTreasury, protocolFeeAmt);
+-        _deliverToken(o.saleToken, msg.sender, netToBuyer); // push مباشر — msg.sender
++        if (q.sellerFee + q.buyerFee > 0) _deliverToken(o.saleToken, brokerTreasury,  q.sellerFee + q.buyerFee);
++        if (q.protocolFee > 0)            _deliverToken(o.saleToken, protocolTreasury, q.protocolFee);
++        _deliverToken(o.saleToken, msg.sender, q.netToBuyer); // push مباشر — msg.sender
+ 
+-        emit BrokerageCollected(offerId, o.saleToken, sellerFee, buyerFee, protocolFeeAmt, brokerTreasury, protocolTreasury);
++        emit BrokerageCollected(offerId, o.saleToken, q.sellerFee, q.buyerFee, q.protocolFee, brokerTreasury, protocolTreasury);
+         emit PartialPurchaseCreated(positionId, offerId, purchaseAmount, o.saleAmount);
+-        emit Purchased(positionId, offerId, msg.sender, netToBuyer, collateralAmount, totalPayable, selectedInstallments);
++        emit Purchased(positionId, offerId, msg.sender, q.netToBuyer, collateralAmount, q.totalPayable, selectedInstallments);
+     }
+ 
+     // ═══════════ Health Factor + إدارة الضمان ═══════════
+@@ -718,11 +642,6 @@ contract MurabahaV6 is
+ 
+     // ═══════════ M-01: إدارة فهرس المراكز النشطة ═══════════
+ 
+-    /// @dev يُضيف مركزاً للفهرس النشط (عند فتح المركز)
+-    function _addActivePosition(uint256 positionId) internal {
+-        _activePositionIds.push(positionId);
+-        _activePositionIndex[positionId] = _activePositionIds.length; // نخزّن index+1
+-    }
+ 
+     /// @dev يُزيل مركزاً من الفهرس النشط بنمط swap-and-pop (عند الاكتمال/التصفية)
+     function _removeActivePosition(uint256 positionId) internal {
+@@ -744,50 +663,13 @@ contract MurabahaV6 is
+         return _activePositionIds.length;
+     }
+ 
++    /// @dev Build 22: المنطق منقول حرفياً إلى AutomationLogic (قراءة فقط) — حدّ الحجم
+     function checkUpkeep(bytes calldata) external view returns (bool upkeepNeeded, bytes memory performData) {
+-        uint256 len = _activePositionIds.length;
+-        for (uint256 i = 0; i < len; i++) {
+-            uint256 pid = _activePositionIds[i];
+-            Position storage p = positions[pid];
+-            // GPT-13: تسعير مركزٍ واحد قد يرفض (مغذٍّ متقادم/Sequencer) — كان يُسقط الجولة
+-            // كلها فتتوقف أتمتة كل المراكز السليمة. نعزله ونتخطّى المركز: لا يُقترَح
+-            // للتنفيذ (وإلا تكرّر فشله في performUpkeep وحجب الطابور)، والتصفية الفعلية
+-            // ما زالت ترفض السعر القديم في كل مسار. يُلتقَط حين يعود مغذّيه.
+-            bool liq;
+-            try this.isLiquidatable(pid) returns (bool l, string memory) {
+-                liq = l;
+-            } catch {
+-                continue;
+-            }
+-            // FB-60: التصفية التلقائية فقط إذا فعّلها البائع
+-            // GPT-13 (المتبقي): فرع التأخّر في isLiquidatable لا يقرأ السعر، لكن التسوية
+-            // (_settleByCollateral) تقرأ سعر الضمان. لا نقترح ما يتعذّر تنفيذه — وإلا فشل
+-            // في performUpkeep وأُعيد اقتراحه كل جولة فتجمّد الطابور. يُلتقَط حين يعود السعر.
+-            if (liq && offers[p.offerId].autoLiquidateEnabled) {
+-                try this.quotePrice(p.collateralToken) returns (uint256) {
+-                    return (true, abi.encode(pid));
+-                } catch {
+-                    continue;
+-                }
+-            }
+-            // FB-60: الدفع التلقائي فقط إذا فعّله المشتري
+-            // Build 18 (M-01): + شرط قابلية التحصيل — مركز برصيد/سماحية ناقصة يُتخطّى
+-            // بدل أن يحتلّ رأس الطابور ويحجب أتمتة بقية المراكز حتى GRACE.
+-            // المتخطّى: يُدفع يدوياً، أو يصبح قابلاً للتصفية بعد GRACE فيلتقطه الفرع الأول.
+-            if (!liq && p.autoPayEnabled && block.timestamp >= p.nextDueDate && _canAutoPay(p))
+-                return (true, abi.encode(pid));
+-        }
+-        return (false, bytes(""));
++        return AutomationLogic.check(positions, offers, _activePositionIds);
+     }
+ 
+-    /// @dev Build 18 (M-01): هل يمكن تحصيل القسط التلقائي فعلاً؟ (رصيد + سماحية المشتري)
+-    function _canAutoPay(Position storage p) internal view returns (bool) {
+-        uint256 amount = MurabahaMath.nextInstallment(p.totalPayable, p.totalInstallments, p.paidInstallments);
+-        uint256 total  = amount + (amount * AUTO_PAY_FEE_BPS) / BPS;
+-        IERC20 pay = IERC20(p.paymentToken);
+-        return pay.balanceOf(p.buyer) >= total
+-            && pay.allowance(p.buyer, address(this)) >= total;
+-    }
++
++
+ 
+     function performUpkeep(bytes calldata performData) external whenNotPaused onlyKeeperOrOwner {
+         uint256 positionId = abi.decode(performData, (uint256));
+@@ -850,11 +732,6 @@ contract MurabahaV6 is
+ 
+     // ═══════════ أدوات داخلية ═══════════
+ 
+-    /// @dev H2: يفحص L2 Sequencer قبل قراءة السعر (إن كان الـ feed مضبوطاً)
+-    function _checkSequencer() internal view {
+-        address seq = sequencerUptimeFeed;
+-        if (seq != address(0)) PriceLib.requireSequencerUp(IChainlinkFeed(seq));
+-    }
+ 
+     /// @dev هل سُجِّل هذا الرمز يوماً؟ فحص **O(1)** لا يتأثّر بإطفاء `active`.
+     ///      `addSupportedToken` يفرض أن غير الستابل له `chainlinkFeed`، وأن الستابل
+@@ -871,21 +748,12 @@ contract MurabahaV6 is
+     ///      أن يُعطِّل تسعير مركز قائم — وإلا تعذّرت تسويته (`earlyRepayWithCollateral`)
+     ///      وانكسرت جولة `checkUpkeep` كلها عند أول مركز برمز مُطفأ.
+     function _tokenPriceUSDC(address token) internal view returns (uint256) {
+-        TokenConfig memory cfg = tokenConfigs[token];
+-        if (!_isRegistered(cfg)) revert Errors.TokenNotSupported();
+-        if (cfg.isStablecoin) return 1e6;
+-        _checkSequencer();
+-        return IChainlinkFeed(cfg.chainlinkFeed).priceUSDC();
++        return PricingLib.price(tokenConfigs[token], sequencerUptimeFeed); // Build 22: مصدر واحد
+     }
+ 
+     /// @dev قيمة كمية من التوكن بـ USDC (6 decimals) — يفحص التسجيل لا `active` (انظر أعلاه)
+     function _tokenValueUSDC(address token, uint256 amount) internal view returns (uint256) {
+-        TokenConfig memory cfg = tokenConfigs[token];
+-        if (!_isRegistered(cfg)) revert Errors.TokenNotSupported();
+-        if (cfg.isStablecoin) return amount; // 1:1 — الستابل
+-        _checkSequencer();
+-        uint256 price = IChainlinkFeed(cfg.chainlinkFeed).priceUSDC();
+-        return PriceLib.assetToUSDC(amount, price, cfg.decimals);
++        return PricingLib.value(tokenConfigs[token], sequencerUptimeFeed, amount); // Build 22: مصدر واحد
+     }
+ 
+     /// @dev يسلّم أصلاً — push مباشر لـ msg.sender، pull للباقين
+@@ -984,26 +852,16 @@ contract MurabahaV6 is
+         emit CustodyCapsSet(g, k, o);
+     }
+ 
+-    /// @notice عهدة رمز = عروض غير مباعة + ضمانات نشطة (بلا ETH المعلّق)
+-    function custodyOf(address token) external view returns (uint256) {
+-        return offerCustody[token] + collateralCustody[token];
+-    }
+ 
+     /// @notice إجمالي الأموال المحتجزة لحساب المستخدمين بالـUSDC: A + B + C
+     function totalExposureUSDC() public view returns (uint256) { return _exposure(false); }
+ 
+-    /// @notice مجموع العروض غير المباعة بالـUSDC (الدلو A)
+-    function offerExposureUSDC() external view returns (uint256) { return _exposure(true); }
+ 
+     function _exposure(bool offersOnly) internal view returns (uint256) {
+         return CustodyLib.exposure(offerCustody, collateralCustody, tokenList, tokenConfigs,
+             totalPendingETH, sequencerUptimeFeed, offersOnly);
+     }
+ 
+-    /// @notice رصيد غير متتبَّع (تبرّعات/إرسال خاطئ) — للمراقبة فقط، لا يدخل السقف
+-    function untrackedBalance(address token) external view returns (uint256) {
+-        return CustodyLib.untracked(offerCustody, collateralCustody, token, totalPendingETH);
+-    }
+ 
+     /// @dev يُستدعى في **نهاية** دوال الإيداع فقط — الخروج لا يُفحص أبداً.
+     /// @return exp الإجمالي بعد العملية (0 إن كان السقف معطّلاً)
+@@ -1140,24 +998,9 @@ contract MurabahaV6 is
+         uint16  effectiveProfitBps,
+         uint256 netToBuyer
+     ) {
+-        Offer storage o = offers[offerId];
+-        if (o.state != OfferState.ACTIVE) revert Errors.OfferNotActive();
+-        if (purchaseAmount == 0 || purchaseAmount > o.saleAmount) revert Errors.InvalidParams();
+-        if (selectedInstallments < o.minInstallments || selectedInstallments > o.maxInstallments)
+-            revert Errors.InvalidInstallments(selectedInstallments, o.minInstallments, o.maxInstallments);
+-
+-        uint256 sellerFee      = (purchaseAmount * brokerageFeeBps) / BPS;
+-        uint256 buyerFee       = (purchaseAmount * brokerageFeeBps) / BPS;
+-        uint256 protocolFeeAmt = (purchaseAmount * protocolFeeBps)  / BPS;
+-        netToBuyer = purchaseAmount - sellerFee - buyerFee - protocolFeeAmt;
+-
+-        effectiveProfitBps = uint16((uint256(o.profitBps) * selectedInstallments) / o.maxInstallments);
+-        if (o.profitBps > 0 && effectiveProfitBps == 0) revert Errors.EffectiveProfitTooLow();
+-
+-        uint256 salePrice    = _tokenPriceUSDC(o.saleToken);
+-        uint256 saleValueUSDC = PriceLib.assetToUSDC(netToBuyer, salePrice, tokenConfigs[o.saleToken].decimals);
+-        totalPayable          = MurabahaMath.sellingPrice(saleValueUSDC, effectiveProfitBps);
+-        installmentAmount     = MurabahaMath.regularInstallment(totalPayable, selectedInstallments);
+-        requiredCollateralUSDC = MurabahaMath.requiredCollateralUSDC(totalPayable, o.collateralRatioBps);
++        // Build 22: منقولة حرفياً إلى BuyLogic.estimate (قراءة فقط) — حدّ الحجم
++        BuyLogic.Estimate memory e = BuyLogic.estimate(offers[offerId], tokenConfigs, purchaseAmount,
++            selectedInstallments, brokerageFeeBps, protocolFeeBps, sequencerUptimeFeed);
++        return (e.totalPayable, e.installmentAmount, e.requiredCollateralUSDC, e.effectiveProfitBps, e.netToBuyer);
+     }
+ }
+diff --git a/contracts/libraries/AutomationLogic.sol b/contracts/libraries/AutomationLogic.sol
+new file mode 100644
+index 0000000..4c066b4
+--- /dev/null
++++ b/contracts/libraries/AutomationLogic.sol
+@@ -0,0 +1,71 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.22;
++
++import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
++import {MurabahaMath} from "./MurabahaMath.sol";
++import {Offer, Position} from "./MurabahaTypes.sol";
++
++/// @dev واجهة الاستدعاء الذاتي — address(this) هو الـProxy لأن المكتبة تُنفَّذ بـdelegatecall
++interface IMurabahaSelf {
++    function isLiquidatable(uint256 positionId) external view returns (bool, string memory);
++    function quotePrice(address token) external view returns (uint256);
++}
++
++/**
++ * @title AutomationLogic — فحص الأتمتة (Build 22)
++ * @notice مكتبة **خارجية مربوطة، قراءة فقط**: MurabahaV6.checkUpkeep و_canAutoPay منقولتان
++ *         حرفياً (GPT-13 وM-01 كما هما) لتقليص حجم العقد. لا تكتب تخزيناً ولا تحوّل أموالاً.
++ *         AUTO_PAY_FEE_BPS مصدره هنا — العقد يعرّف ثابته منه.
++ */
++library AutomationLogic {
++    uint16 internal constant AUTO_PAY_FEE_BPS = 30; // 0.3% إضافية على كل قسط تلقائي
++
++    function check(
++        mapping(uint256 => Position) storage positions,
++        mapping(uint256 => Offer) storage offers,
++        uint256[] storage activeIds
++    ) external view returns (bool upkeepNeeded, bytes memory performData) {
++        uint256 len = activeIds.length;
++        for (uint256 i = 0; i < len; i++) {
++            uint256 pid = activeIds[i];
++            Position storage p = positions[pid];
++            // GPT-13: تسعير مركزٍ واحد قد يرفض (مغذٍّ متقادم/Sequencer) — كان يُسقط الجولة
++            // كلها فتتوقف أتمتة كل المراكز السليمة. نعزله ونتخطّى المركز: لا يُقترَح
++            // للتنفيذ (وإلا تكرّر فشله في performUpkeep وحجب الطابور)، والتصفية الفعلية
++            // ما زالت ترفض السعر القديم في كل مسار. يُلتقَط حين يعود مغذّيه.
++            bool liq;
++            try IMurabahaSelf(address(this)).isLiquidatable(pid) returns (bool l, string memory) {
++                liq = l;
++            } catch {
++                continue;
++            }
++            // FB-60: التصفية التلقائية فقط إذا فعّلها البائع
++            // GPT-13 (المتبقي): فرع التأخّر في isLiquidatable لا يقرأ السعر، لكن التسوية
++            // (_settleByCollateral) تقرأ سعر الضمان. لا نقترح ما يتعذّر تنفيذه — وإلا فشل
++            // في performUpkeep وأُعيد اقتراحه كل جولة فتجمّد الطابور. يُلتقَط حين يعود السعر.
++            if (liq && offers[p.offerId].autoLiquidateEnabled) {
++                try IMurabahaSelf(address(this)).quotePrice(p.collateralToken) returns (uint256) {
++                    return (true, abi.encode(pid));
++                } catch {
++                    continue;
++                }
++            }
++            // FB-60: الدفع التلقائي فقط إذا فعّله المشتري
++            // Build 18 (M-01): + شرط قابلية التحصيل — مركز برصيد/سماحية ناقصة يُتخطّى
++            // بدل أن يحتلّ رأس الطابور ويحجب أتمتة بقية المراكز حتى GRACE.
++            // المتخطّى: يُدفع يدوياً، أو يصبح قابلاً للتصفية بعد GRACE فيلتقطه الفرع الأول.
++            if (!liq && p.autoPayEnabled && block.timestamp >= p.nextDueDate && _canAutoPay(p))
++                return (true, abi.encode(pid));
++        }
++        return (false, bytes(""));
++    }
++
++    /// @dev Build 18 (M-01): هل يمكن تحصيل القسط التلقائي فعلاً؟ (رصيد + سماحية المشتري)
++    function _canAutoPay(Position storage p) private view returns (bool) {
++        uint256 amount = MurabahaMath.nextInstallment(p.totalPayable, p.totalInstallments, p.paidInstallments);
++        uint256 total  = amount + (amount * AUTO_PAY_FEE_BPS) / MurabahaMath.BPS;
++        IERC20 pay = IERC20(p.paymentToken);
++        return pay.balanceOf(p.buyer) >= total
++            && pay.allowance(p.buyer, address(this)) >= total;
++    }
++}
+diff --git a/contracts/libraries/BuyLogic.sol b/contracts/libraries/BuyLogic.sol
+new file mode 100644
+index 0000000..d677439
+--- /dev/null
++++ b/contracts/libraries/BuyLogic.sol
+@@ -0,0 +1,163 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.22;
++
++import {Errors} from "./Errors.sol";
++import {PriceLib} from "./PriceLib.sol";
++import {MurabahaMath} from "./MurabahaMath.sol";
++import {PricingLib} from "./PricingLib.sol";
++import {TokenConfig, Offer, OfferState, Position, PositionState} from "./MurabahaTypes.sol";
++
++/**
++ * @title BuyLogic — فحوصات الشراء وحساباته (Build 22)
++ * @notice مكتبة **خارجية مربوطة**: تُنفَّذ بـdelegatecall في سياق الـProxy (msg.sender = المشتري).
++ *         نُقل إليها الجزء **الحسابي** من MurabahaV6._buy حرفياً وبالترتيب نفسه لأخطائه، لتقليص
++ *         حجم العقد (docs/size-analysis.md). `quote` لا تكتب شيئاً؛ `record` تكتب المركز وفهرسيه
++ *         فقط (منقولة حرفياً). تحديث العرض وعدّادات العهدة والتحويلات والأحداث باقية في العقد.
++ */
++library BuyLogic {
++    struct Params {
++        uint256 purchaseAmount;
++        uint256 collateralAmount;
++        uint256 quotedSalePrice;
++        uint8   selectedInstallments;
++        uint16  brokerageFeeBps;
++        uint16  protocolFeeBps;
++        uint16  slippageToleranceBps;
++        uint256 maxPositionValueUSDC;
++        uint256 maxActivePositions;
++        uint256 activePositions;
++        address sequencer;
++    }
++
++    struct Quote {
++        uint256 sellerFee;
++        uint256 buyerFee;
++        uint256 protocolFee;
++        uint256 netToBuyer;
++        uint256 totalPayable;
++    }
++
++    function quote(
++        Offer storage o,
++        mapping(address => TokenConfig) storage cfgs,
++        Params memory p
++    ) external view returns (Quote memory q) {
++        if (o.state != OfferState.ACTIVE)  revert Errors.OfferNotActive();
++
++        // GPT-09: الشراء التزام جديد ⇒ يُحكَم بـ`active` كـ`createOffer`.
++        if (!cfgs[o.saleToken].active)       revert Errors.TokenNotSupported();
++        if (!cfgs[o.collateralToken].active) revert Errors.TokenNotSupported();
++        if (!cfgs[o.paymentToken].active)    revert Errors.TokenNotSupported();
++
++        // FB-31: حماية ضد Self-Buy (شرعي + أمني)
++        if (o.seller == msg.sender) revert Errors.SelfBuyNotAllowed();
++
++        if (p.purchaseAmount == 0 || p.purchaseAmount > o.saleAmount) revert Errors.InvalidParams();
++        if (o.minPurchaseAmount > 0 && p.purchaseAmount < o.minPurchaseAmount)
++            revert Errors.BelowMinPurchase(p.purchaseAmount, o.minPurchaseAmount);
++        if (p.selectedInstallments < o.minInstallments || p.selectedInstallments > o.maxInstallments)
++            revert Errors.InvalidInstallments(p.selectedInstallments, o.minInstallments, o.maxInstallments);
++
++        // D-018: فحص الانزلاق
++        TokenConfig memory saleCfg = cfgs[o.saleToken];
++        uint256 salePrice = PricingLib.price(saleCfg, p.sequencer);
++        PriceLib.checkSlippage(p.quotedSalePrice, salePrice, p.slippageToleranceBps);
++
++        // D-012: العمولات من أصل البيع
++        q.sellerFee   = (p.purchaseAmount * p.brokerageFeeBps) / MurabahaMath.BPS;
++        q.buyerFee    = (p.purchaseAmount * p.brokerageFeeBps) / MurabahaMath.BPS;
++        q.protocolFee = (p.purchaseAmount * p.protocolFeeBps)  / MurabahaMath.BPS;
++        q.netToBuyer  = p.purchaseAmount - q.sellerFee - q.buyerFee - q.protocolFee;
++
++        // الربح التناسبي
++        uint16 effectiveProfitBps = uint16(
++            (uint256(o.profitBps) * p.selectedInstallments) / o.maxInstallments
++        );
++        if (o.profitBps > 0 && effectiveProfitBps == 0) revert Errors.EffectiveProfitTooLow();
++
++        // قيمة الصافي المُستلَم بالـ paymentToken (6 dec)
++        uint256 saleValueUSDC = PriceLib.assetToUSDC(q.netToBuyer, salePrice, saleCfg.decimals);
++        q.totalPayable = MurabahaMath.sellingPrice(saleValueUSDC, effectiveProfitBps);
++
++        // D-008: تقييم الضمان
++        uint256 collateralValueUSDC = PricingLib.value(cfgs[o.collateralToken], p.sequencer, p.collateralAmount);
++        uint256 requiredValue       = MurabahaMath.requiredCollateralUSDC(q.totalPayable, o.collateralRatioBps);
++        if (collateralValueUSDC < requiredValue)
++            revert Errors.InsufficientCollateral(collateralValueUSDC, requiredValue);
++
++        // Build 20: سقف الإطلاق المحروس
++        if (p.maxPositionValueUSDC != 0 && q.totalPayable > p.maxPositionValueUSDC)
++            revert Errors.PositionExceedsCap(q.totalPayable, p.maxPositionValueUSDC);
++        if (p.maxActivePositions != 0 && p.activePositions >= p.maxActivePositions)
++            revert Errors.ActivePositionsCapReached(p.maxActivePositions);
++    }
++
++    /// @notice كتابة المركز الجديد + فهرس المشتري + فهرس المراكز النشطة (M-01) — منقولة حرفياً
++    function record(
++        mapping(uint256 => Position) storage positions,
++        mapping(address => uint256[]) storage buyerPositions,
++        uint256[] storage activeIds,
++        mapping(uint256 => uint256) storage activeIndex,
++        Offer storage o,
++        uint256 positionId,
++        uint256 offerId,
++        uint256 netToBuyer,
++        uint256 collateralAmount,
++        uint256 totalPayable,
++        uint8   selectedInstallments,
++        bool    enableAutoPay
++    ) external {
++        positions[positionId] = Position({
++            offerId: offerId, buyer: msg.sender,
++            saleToken: o.saleToken, collateralToken: o.collateralToken, paymentToken: o.paymentToken,
++            saleAmount: netToBuyer, collateralAmount: collateralAmount,
++            totalPayable: totalPayable, totalInstallments: selectedInstallments,
++            paidInstallments: 0, paymentInterval: o.paymentInterval,
++            nextDueDate: block.timestamp + o.paymentInterval, state: PositionState.ACTIVE,
++            autoPayEnabled: enableAutoPay  // FB-60
++        });
++        buyerPositions[msg.sender].push(positionId);
++        // M-01: أضِف للفهرس النشط (كان MurabahaV6._addActivePosition)
++        activeIds.push(positionId);
++        activeIndex[positionId] = activeIds.length; // نخزّن index+1
++    }
++
++    struct Estimate {
++        uint256 totalPayable;
++        uint256 installmentAmount;
++        uint256 requiredCollateralUSDC;
++        uint16  effectiveProfitBps;
++        uint256 netToBuyer;
++    }
++
++    /// @notice تقدير الشراء (قراءة فقط) — MurabahaV6.estimatePurchase منقولة حرفياً
++    function estimate(
++        Offer storage o,
++        mapping(address => TokenConfig) storage cfgs,
++        uint256 purchaseAmount,
++        uint8   selectedInstallments,
++        uint16  brokerageFeeBps,
++        uint16  protocolFeeBps,
++        address sequencer
++    ) external view returns (Estimate memory e) {
++        if (o.state != OfferState.ACTIVE) revert Errors.OfferNotActive();
++        if (purchaseAmount == 0 || purchaseAmount > o.saleAmount) revert Errors.InvalidParams();
++        if (selectedInstallments < o.minInstallments || selectedInstallments > o.maxInstallments)
++            revert Errors.InvalidInstallments(selectedInstallments, o.minInstallments, o.maxInstallments);
++
++        uint256 sellerFee      = (purchaseAmount * brokerageFeeBps) / MurabahaMath.BPS;
++        uint256 buyerFee       = (purchaseAmount * brokerageFeeBps) / MurabahaMath.BPS;
++        uint256 protocolFeeAmt = (purchaseAmount * protocolFeeBps)  / MurabahaMath.BPS;
++        e.netToBuyer = purchaseAmount - sellerFee - buyerFee - protocolFeeAmt;
++
++        e.effectiveProfitBps = uint16((uint256(o.profitBps) * selectedInstallments) / o.maxInstallments);
++        if (o.profitBps > 0 && e.effectiveProfitBps == 0) revert Errors.EffectiveProfitTooLow();
++
++        TokenConfig memory saleCfg = cfgs[o.saleToken];
++        uint256 salePrice     = PricingLib.price(saleCfg, sequencer);
++        uint256 saleValueUSDC = PriceLib.assetToUSDC(e.netToBuyer, salePrice, saleCfg.decimals);
++        e.totalPayable           = MurabahaMath.sellingPrice(saleValueUSDC, e.effectiveProfitBps);
++        e.installmentAmount      = MurabahaMath.regularInstallment(e.totalPayable, selectedInstallments);
++        e.requiredCollateralUSDC = MurabahaMath.requiredCollateralUSDC(e.totalPayable, o.collateralRatioBps);
++    }
++}
+diff --git a/contracts/libraries/CustodyLib.sol b/contracts/libraries/CustodyLib.sol
+index 13e9404..bd24fb8 100644
+--- a/contracts/libraries/CustodyLib.sol
++++ b/contracts/libraries/CustodyLib.sol
+@@ -2,9 +2,8 @@
+ pragma solidity ^0.8.22;
+ 
+ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+-import {IChainlinkFeed} from "../interfaces/IChainlinkFeed.sol";
+ import {Errors} from "./Errors.sol";
+-import {PriceLib} from "./PriceLib.sol";
++import {PricingLib} from "./PricingLib.sol";
+ import {TokenConfig, Offer, Position, OfferState} from "./MurabahaTypes.sol";
+ 
+ /**
+@@ -12,8 +11,7 @@ import {TokenConfig, Offer, Position, OfferState} from "./MurabahaTypes.sol";
+  * @notice مكتبة **خارجية مربوطة** (external, linked): تُنفَّذ بـdelegatecall في سياق الـProxy
+  *         فتقرأ وتكتب تخزينه عبر المؤشّرات الممرَّرة. نُقلت إلى هنا لأن العقد تجاوز حدّ
+  *         24,576 بايت (docs/global-cap-design.md §7). لا تملك تخزيناً ولا selfdestruct.
+- * @dev    التسعير هنا نسخة مطابقة لـMurabahaV6._tokenValueUSDC (تسجيل لا active · ستابل 1:1 ·
+- *         Sequencer · رفض السعر القديم). أي تعديل هناك يجب أن ينعكس هنا — يغطيه اختبار التطابق.
++ * @dev    التسعير عبر PricingLib — نفس المصدر الذي يستعمله العقد وBuyLogic.
+  */
+ library CustodyLib {
+     event AccountingFaultDetected(address indexed token, uint256 had, uint256 removed);
+@@ -34,12 +32,7 @@ library CustodyLib {
+             address t = tokens[i];
+             uint256 units = offersOnly ? offerC[t] : _owed(offerC, colC, t, pendingETH);
+             if (units == 0) continue; // لا يُقرأ سعر رمز بلا عهدة
+-            TokenConfig storage cfg = cfgs[t];
+-            if (!(cfg.isStablecoin || cfg.chainlinkFeed != address(0))) revert Errors.TokenNotSupported();
+-            if (cfg.isStablecoin) { total += units; continue; }
+-            if (sequencer != address(0)) PriceLib.requireSequencerUp(IChainlinkFeed(sequencer));
+-            uint256 price = PriceLib.priceUSDC(IChainlinkFeed(cfg.chainlinkFeed));
+-            total += PriceLib.assetToUSDC(units, price, cfg.decimals);
++            total += PricingLib.value(cfgs[t], sequencer, units); // Build 22: مصدر تسعير واحد
+         }
+     }
+ 
+diff --git a/contracts/libraries/OfferLogic.sol b/contracts/libraries/OfferLogic.sol
+new file mode 100644
+index 0000000..6266baf
+--- /dev/null
++++ b/contracts/libraries/OfferLogic.sol
+@@ -0,0 +1,59 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.22;
++
++import {Errors} from "./Errors.sol";
++import {Offer, OfferState} from "./MurabahaTypes.sol";
++
++/**
++ * @title OfferLogic — فحص معاملات العرض وكتابته (Build 22)
++ * @notice مكتبة **خارجية مربوطة** (delegatecall، msg.sender = البائع). محتوى MurabahaV6._createOffer
++ *         منقول حرفياً وبنفس ترتيب الأخطاء. فحوصات الرموز والتحويل الوارد قبله والحدث بعده
++ *         باقية في العقد. الثوابت هنا مصدرها الوحيد — العقد يعرّف ثوابته العامة منها.
++ */
++library OfferLogic {
++    uint16 internal constant MIN_COLLATERAL_RATIO_BPS = 11000; // 110%
++    uint16 internal constant MAX_COLLATERAL_RATIO_BPS = 20000; // 200%
++    uint16 internal constant MAX_PROFIT_BPS           = 30000; // 300%
++    uint32 internal constant MIN_PAYMENT_INTERVAL     = 60;
++    uint32 internal constant MAX_PAYMENT_INTERVAL     = 365 days;
++
++    struct NewOffer {
++        address saleToken;
++        address collateralToken;
++        address paymentToken;
++        uint256 saleAmount;
++        uint16  profitBps;
++        uint8   minInstallments;
++        uint8   maxInstallments;
++        uint32  paymentInterval;
++        uint256 minPurchaseAmount;
++        uint16  collateralRatioBps;
++        bool    enableAutoLiquidate;
++    }
++
++    function record(
++        mapping(uint256 => Offer) storage offers,
++        mapping(address => uint256[]) storage sellerOffers,
++        uint256 offerId,
++        NewOffer memory n
++    ) external {
++        if (n.saleAmount == 0 || n.maxInstallments == 0 || n.minInstallments == 0) revert Errors.InvalidParams();
++        if (n.minInstallments > n.maxInstallments)          revert Errors.InvalidParams();
++        if (n.profitBps > MAX_PROFIT_BPS)                   revert Errors.InvalidParams();
++        if (n.collateralRatioBps < MIN_COLLATERAL_RATIO_BPS) revert Errors.InvalidParams(); // < 110%
++        if (n.collateralRatioBps > MAX_COLLATERAL_RATIO_BPS) revert Errors.InvalidParams(); // > 200%
++        if (n.paymentInterval < MIN_PAYMENT_INTERVAL)       revert Errors.InvalidParams();
++        if (n.paymentInterval > MAX_PAYMENT_INTERVAL)       revert Errors.InvalidParams();
++
++        offers[offerId] = Offer({
++            seller: msg.sender, saleToken: n.saleToken, collateralToken: n.collateralToken,
++            paymentToken: n.paymentToken, totalAmount: n.saleAmount, saleAmount: n.saleAmount,
++            minPurchaseAmount: n.minPurchaseAmount, profitBps: n.profitBps,
++            minInstallments: n.minInstallments, maxInstallments: n.maxInstallments,
++            paymentInterval: n.paymentInterval, collateralRatioBps: n.collateralRatioBps,
++            state: OfferState.ACTIVE,
++            autoLiquidateEnabled: n.enableAutoLiquidate  // FB-60
++        });
++        sellerOffers[msg.sender].push(offerId);
++    }
++}
+diff --git a/contracts/libraries/PricingLib.sol b/contracts/libraries/PricingLib.sol
+new file mode 100644
+index 0000000..a67946d
+--- /dev/null
++++ b/contracts/libraries/PricingLib.sol
+@@ -0,0 +1,37 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.22;
++
++import {IChainlinkFeed} from "../interfaces/IChainlinkFeed.sol";
++import {Errors} from "./Errors.sol";
++import {PriceLib} from "./PriceLib.sol";
++import {TokenConfig} from "./MurabahaTypes.sol";
++
++/**
++ * @title PricingLib — مصدر واحد لتسعير الرموز (Build 22)
++ * @notice دوال **داخلية** تُدمَج في كل من يستعملها (MurabahaV6 وCustodyLib وBuyLogic) — بدل
++ *         ثلاث نسخ منفصلة كانت قابلة للتباعد. السلوك منقول حرفياً من MurabahaV6 قبل Build 22:
++ *         يفحص **التسجيل** لا `active` (GPT-01) · الستابل 1:1 · فحص L2 Sequencer · رفض السعر القديم.
++ */
++library PricingLib {
++    /// @dev سُجِّل يوماً؟ (الستابل بعلمه، وغيره بمغذّيه) — لا يتأثّر بإطفاء active
++    function isRegistered(TokenConfig memory cfg) internal pure returns (bool) {
++        return cfg.isStablecoin || cfg.chainlinkFeed != address(0);
++    }
++
++    /// @dev سعر وحدة بالـUSDC (6 dec). الستابل = 1e6.
++    function price(TokenConfig memory cfg, address sequencer) internal view returns (uint256) {
++        if (!isRegistered(cfg)) revert Errors.TokenNotSupported();
++        if (cfg.isStablecoin) return 1e6;
++        if (sequencer != address(0)) PriceLib.requireSequencerUp(IChainlinkFeed(sequencer));
++        return PriceLib.priceUSDC(IChainlinkFeed(cfg.chainlinkFeed));
++    }
++
++    /// @dev قيمة كمية بالـUSDC (6 dec). الستابل 1:1.
++    function value(TokenConfig memory cfg, address sequencer, uint256 amount) internal view returns (uint256) {
++        if (!isRegistered(cfg)) revert Errors.TokenNotSupported();
++        if (cfg.isStablecoin) return amount;
++        if (sequencer != address(0)) PriceLib.requireSequencerUp(IChainlinkFeed(sequencer));
++        uint256 p = PriceLib.priceUSDC(IChainlinkFeed(cfg.chainlinkFeed));
++        return PriceLib.assetToUSDC(amount, p, cfg.decimals);
++    }
++}
+diff --git a/contracts/test/MurabahaV6CustodyHarness.sol b/contracts/test/MurabahaV6CustodyHarness.sol
+new file mode 100644
+index 0000000..2e6ef5a
+--- /dev/null
++++ b/contracts/test/MurabahaV6CustodyHarness.sol
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.22;
++
++import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
++import {MurabahaV6} from "../MurabahaV6.sol";
++
++/// @notice ⚠️ للاختبار فقط — لا يُنشر أبداً. يفرض خللاً محاسبياً (#14/#14b) وسحباً يتجاوز
++///         المحاسبة (#15) لاختبار accountingFault وقاطع I2. بلا صلاحيات عمداً.
++contract MurabahaV6CustodyHarness is MurabahaV6 {
++    function forceOfferCustody(address t, uint256 v) external { offerCustody[t] = v; }
++    function forceCollateralCustody(address t, uint256 v) external { collateralCustody[t] = v; }
++    function forceDrain(address t, address to, uint256 amount) external {
++        if (t == address(0)) { (bool ok,) = payable(to).call{value: amount}(""); require(ok); }
++        else IERC20(t).transfer(to, amount);
++    }
++}
+diff --git a/hardhat.diff.config.ts b/hardhat.diff.config.ts
+new file mode 100644
+index 0000000..176781a
+--- /dev/null
++++ b/hardhat.diff.config.ts
+@@ -0,0 +1,52 @@
++import { HardhatUserConfig } from "hardhat/config";
++import "@nomicfoundation/hardhat-toolbox";
++import "@openzeppelin/hardhat-upgrades";
++import * as dotenv from "dotenv";
++dotenv.config();
++
++const SEPOLIA_RPC   = process.env.SEPOLIA_RPC_URL   || "";
++const BASE_RPC      = process.env.BASE_RPC_URL       || "https://mainnet.base.org";
++const PRIVATE_KEY   = process.env.PRIVATE_KEY        || "";
++const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY  || "";
++// BUG-045: Etherscan V2 API يستخدم نفس الـ key لكل الشبكات (Base/Sepolia/...)
++const BASESCAN_KEY  = process.env.BASESCAN_API_KEY   || ETHERSCAN_KEY;
++
++const config: HardhatUserConfig = {
++  solidity: {
++    version: "0.8.22",
++    settings: {
++      viaIR: true,
++      optimizer: { enabled: true, runs: 200 },
++      evmVersion: "paris",
++    },
++  },
++  networks: {
++    // FORK=1 يفعّل fork من Base mainnet لاختبار الترقية بأمان (storage validation)
++    // ملف المقارنة السلوكية فقط: يسمح بنشر النسخة المرجعية (28KB) محلياً — لا يُستعمل لغيرها
++    hardhat: process.env.DIFF_UNLIMITED ? { allowUnlimitedContractSize: true } : process.env.FORK ? {
++      hardfork: "cancun",
++      forking: { url: BASE_RPC, blockNumber: 47770000 },
++      chains: { 8453: { hardforkHistory: { cancun: 0 } } },
++    } : {},
++    sepolia: {
++      url: SEPOLIA_RPC,
++      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
++    },
++    "base-sepolia": {
++      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
++      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
++      chainId: 84532,
++    },
++    base: {
++      url: BASE_RPC,
++      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
++      chainId: 8453,
++    },
++  },
++  // Etherscan V2 — مفتاح واحد لكل الشبكات
++  etherscan: {
++    apiKey: ETHERSCAN_KEY,
++  },
++};
++
++export default config;
+diff --git a/test/BuildDiff.behavior.test.ts b/test/BuildDiff.behavior.test.ts
+new file mode 100644
+index 0000000..f944d61
+--- /dev/null
++++ b/test/BuildDiff.behavior.test.ts
+@@ -0,0 +1,119 @@
++import { expect } from "chai";
++import { ethers, upgrades } from "hardhat";
++import { deployScenario, runScenario, OPS } from "./helpers/custodyScenario";
++
++/**
++ * مقارنة سلوكية: نسخة السقف **قبل** إعادة الهيكلة (MurabahaV6Baseline = نسخة العمل غير المحفوظة)
++ * مقابل **بعدها** (C1 + BuyLogic/OfferLogic/AutomationLogic/PricingLib). نفس السيناريو والبذرة.
++ * تُقارَن: نتيجة كل مسار، وتسلسل أحداث العقد كاملاً (topics + data)، وكل العروض والمراكز،
++ * وأرصدة الرموز للأطراف، وETH المعلّق. لا تُقارَن أرصدة ETH للمرسلين (تختلف بالغاز فقط).
++ */
++async function baselineFactory() {
++  const lib = await (await ethers.getContractFactory("CustodyLib")).deploy();
++  return ethers.getContractFactory("MurabahaV6Baseline", { libraries: { CustodyLib: await lib.getAddress() } });
++}
++
++/** عناوين النشر (رموز ومغذّيات وتنفيذ ووكيل) تختلف بين التشغيلتين — تُستبدل بأسماء ثابتة */
++async function normalizer(s: any) {
++  const map: [string, string][] = [];
++  const add = async (name: string, addr: string) => map.push([addr.toLowerCase().slice(2), name]);
++  await add("<USDC>", await s.usdc.getAddress()); await add("<WBTC>", s.wAddr);
++  await add("<ETHFEED>", await s.ethFeed.getAddress()); await add("<BTCFEED>", await s.btcFeed.getAddress());
++  await add("<PROXY>", s.mAddr);
++  const implAddr = await upgrades.erc1967.getImplementationAddress(s.mAddr);
++  await add("<IMPL>", implAddr);
++  return (h: string) => { let x = h.toLowerCase(); for (const [a, n] of map) x = x.split(a).join(n); return x; };
++}
++
++async function snapshot(s: any) {
++  const norm = await normalizer(s);
++  const logs = await ethers.provider.getLogs({ address: s.mAddr, fromBlock: s.fromBlock ?? 0, toBlock: "latest" });
++  const events = logs.map((l) => ({ topics: l.topics.map(norm), data: norm(l.data) }));
++  const offers = [], positions = [];
++  for (let i = 1n; i < (await s.m.nextOfferId()); i++) offers.push((await s.m.getOffer(i)).toArray().map((v: any) => norm(String(v))));
++  for (let i = 1n; i < (await s.m.nextPositionId()); i++) {
++    const p = (await s.m.getPosition(i)).toArray().map((v: any) => norm(String(v)));
++    p[11] = "nextDueDate"; // يعتمد على طابع الكتلة — يختلف بين التشغيلتين
++    positions.push(p);
++  }
++  const actors = [...s.sellers, ...s.buyers, s.owner, s.stranger];
++  const tokens = [];
++  for (const a of actors) tokens.push([String(await s.wbtc.balanceOf(a.address)), String(await s.usdc.balanceOf(a.address)), String(await s.m.pendingETH(a.address))]);
++  return {
++    events, offers, positions, tokens,
++    contractETH: String(await ethers.provider.getBalance(s.mAddr)),
++    contractWBTC: String(await s.wbtc.balanceOf(s.mAddr)),
++    totalPendingETH: String(await s.m.totalPendingETH()),
++    exposure: String(await s.m.totalExposureUSDC()),
++  };
++}
++
++// يعمل فقط بإعدادات المقارنة: DIFF_UNLIMITED=1 npx hardhat --config hardhat.diff.config.ts test test/BuildDiff.behavior.test.ts
++(process.env.DIFF_UNLIMITED ? describe : describe.skip)("مقارنة سلوكية: قبل إعادة الهيكلة ⇄ بعدها", () => {
++  for (const seed of [20261001, 7, 424242]) {
++    it(`البذرة ${seed}: نفس النتائج والأحداث والحالة والأرصدة`, async () => {
++      const before = await deployScenario(baselineFactory);
++      const okB = await runScenario(before, seed, 150);
++      const snapB = await snapshot(before);
++
++      const after = await deployScenario();
++      const okA = await runScenario(after, seed, 150);
++      const snapA = await snapshot(after);
++
++      expect(okA).to.deep.equal(okB);
++      for (const op of OPS) expect(okA[op], op).to.be.greaterThan(0);
++      expect(snapA.events.length).to.equal(snapB.events.length);
++      expect(snapA.events).to.deep.equal(snapB.events);
++      expect(snapA.offers).to.deep.equal(snapB.offers);
++      expect(snapA.positions).to.deep.equal(snapB.positions);
++      expect(snapA.tokens).to.deep.equal(snapB.tokens);
++      for (const k of ["contractETH", "contractWBTC", "totalPendingETH", "exposure"] as const)
++        expect(snapA[k], k).to.equal(snapB[k]);
++      console.log(`      ${snapA.events.length} حدثاً متطابقاً · ${snapA.offers.length} عرضاً · ${snapA.positions.length} مركزاً`);
++    });
++  }
++
++  it("أخطاء المسارات المنقولة: نفس selector ونفس الوسائط", async () => {
++    const before = await deployScenario(baselineFactory);
++    const after = await deployScenario();
++    const usdc = await before.usdc.getAddress(), usdc2 = await after.usdc.getAddress();
++    const cases = async (s: any, u: string) => {
++      const out: string[] = [];
++      const tryCall = async (f: () => Promise<any>) => {
++        try { await f(); out.push("ok"); } catch (e: any) { out.push(e?.data ?? e?.info?.error?.data ?? String(e?.message).slice(0, 80)); }
++      };
++      await s.m.connect(s.seller).createOffer(s.wAddr, s.wAddr, u, 10_000_000n, 1000, 2, 12, 60, 1_000_000n, 12000, false);
++      const B = (amt: bigint, col: bigint, q: bigint, n: number) => s.m.connect(s.buyer).buy.staticCall(1, amt, col, q, n, false);
++      await tryCall(() => B(0n, 1n, 60000n * 10n ** 6n, 12));                  // InvalidParams
++      await tryCall(() => B(500_000n, 1n, 60000n * 10n ** 6n, 12));            // BelowMinPurchase
++      await tryCall(() => B(5_000_000n, 1n, 60000n * 10n ** 6n, 13));          // InvalidInstallments
++      await tryCall(() => B(5_000_000n, 1n, 50000n * 10n ** 6n, 12));          // SlippageExceeded
++      await tryCall(() => B(5_000_000n, 1n, 60000n * 10n ** 6n, 12));          // InsufficientCollateral
++      await tryCall(() => s.m.connect(s.seller).buy.staticCall(1, 5_000_000n, 9_000_000n, 60000n * 10n ** 6n, 12, false)); // SelfBuy
++      await tryCall(() => s.m.connect(s.seller).createOffer.staticCall(s.wAddr, s.wAddr, u, 1n, 30001, 1, 12, 60, 0, 12000, false)); // InvalidParams (profit)
++      await tryCall(() => s.m.connect(s.seller).createOffer.staticCall(s.wAddr, s.wAddr, u, 1n, 1000, 1, 12, 59, 0, 12000, false));  // InvalidParams (interval)
++      await tryCall(() => s.m.estimatePurchase(1, 5_000_000n, 13));            // InvalidInstallments
++      out.push(String((await s.m.estimatePurchase(1, 5_000_000n, 12)).toArray()));
++      return out;
++    };
++    const a = await cases(after, usdc2), b = await cases(before, usdc);
++    expect(a).to.deep.equal(b);
++    for (const x of a.slice(0, 9)) expect(x).to.match(/^0x[0-9a-f]{8}/);   // كلها أخطاء مخصّصة مُرمّزة
++  });
++
++  it("الغاز: كلفة الاستدعاءات المنقولة (للتقرير)", async () => {
++    const out: Record<string, bigint[]> = {};
++    for (const [name, fac] of [["قبل", baselineFactory], ["بعد", undefined]] as const) {
++      const s = await deployScenario(fac as any);
++      const u = await s.usdc.getAddress();
++      const r1 = await (await s.m.connect(s.seller).createOffer(s.wAddr, s.wAddr, u, 10_000_000n, 1000, 1, 12, 60, 0, 12000, false)).wait();
++      const r2 = await (await s.m.connect(s.buyer).buy(1, 5_000_000n, 9_000_000n, 60000n * 10n ** 6n, 12, false)).wait();
++      const g3 = await s.m.checkUpkeep.estimateGas("0x");
++      const g4 = await s.m.estimatePurchase.estimateGas(1, 1_000_000n, 12);
++      out[name] = [r1!.gasUsed, r2!.gasUsed, g3, g4];
++    }
++    console.log("      الغاز [createOffer, buy, checkUpkeep, estimatePurchase]");
++    console.log("        قبل:", out["قبل"].map(String).join(" · "));
++    console.log("        بعد:", out["بعد"].map(String).join(" · "));
++  });
++});
+diff --git a/test/CustodyScenario.coverage.test.ts b/test/CustodyScenario.coverage.test.ts
+index 4006b70..99ccd5c 100644
+--- a/test/CustodyScenario.coverage.test.ts
++++ b/test/CustodyScenario.coverage.test.ts
+@@ -24,7 +24,7 @@ describe("مولّد سيناريوهات العهدة — تغطية كل ال
+     // مراجعة جبتي (v2): التغطية بالأسماء لا تكفي — نثبت بلوغ الحالات النهائية فعلاً
+     let completedByInstallments = false;
+     for (let i = 1n; i < (await s.m.nextPositionId()); i++) {
+-      const p = await s.m.positions(i);
++      const p = await s.m.getPosition(i);
+       if (p.state === 1n && p.paidInstallments === p.totalInstallments && p.collateralAmount === 0n)
+         completedByInstallments = true; // اكتمل بالقسط الأخير (earlyRepayCash يضبطها كذلك — لذا نتحقق من الحدث أدناه)
+     }
+diff --git a/test/GlobalCap.design.test.ts b/test/GlobalCap.design.test.ts
+deleted file mode 100644
+index 7d10a53..0000000
+--- a/test/GlobalCap.design.test.ts
++++ /dev/null
+@@ -1,396 +0,0 @@
+-import { expect } from "chai";
+-import { ethers, upgrades } from "hardhat";
+-import { time } from "@nomicfoundation/hardhat-network-helpers";
+-import {
+-  deployScenario, runScenario, recomputeCustody, OPS,
+-  U, BTC, E, INTERVAL, GRACE, ETH_FEED, BTC_FEED,
+-} from "./helpers/custodyScenario";
+-
+-/**
+- * اختبارات تصميم السقف الإجمالي v3 — docs/global-cap-design.md (القسم 8)
+- *
+- * ⏸ موقوفة (describe.skip): تختبر واجهة لم تُنفَّذ بعد في MurabahaV6:
+- *    custodyOf(token) · globalCapUSDC() · commitmentCapUSDC() · accountingFault()
+- *    setCustodyCaps(global, commitment) · totalExposureUSDC() · untrackedBalance(token)
+- *    reconcileCustody(address[], uint256[]) · initializeV3(global, commitment)
+- *    errors: GlobalCapExceeded(uint256,uint256) · AccountingFault() · CustodyInsolvent(address,uint256,uint256)
+- *            NewCommitmentsPaused() (v3 — CAP-V2-01)
+- * و#14/#15 تحتاجان عقد اختبار contracts/test/MurabahaV6CustodyHarness.sol (forceCustody/forceDrain).
+- * تُفعَّل بإزالة `.skip` بعد التنفيذ والمراجعة.
+- */
+-
+-const GLOBAL = U(20_000);
+-const COMMIT = U(17_000);  // الاحتياطي = 3,000 (قرار المالك: سقف 20,000)
+-const Q_BTC = 60000n * 10n ** 6n;
+-const Q_ETH = 3000n * 10n ** 6n;
+-
+-async function deploy() {
+-  const s = await deployScenario();
+-  return { ...s, g: s.m as any };
+-}
+-type Ctx = Awaited<ReturnType<typeof deploy>>;
+-const caps = (c: Ctx, g = GLOBAL, k = COMMIT) => c.g.connect(c.owner).setCustodyCaps(g, k);
+-
+-async function btcOffer(c: Ctx, who: any, amount: bigint, colToken?: string) {
+-  return c.m.connect(who).createOffer(c.wAddr, colToken ?? c.wAddr, await c.usdc.getAddress(), amount, 1000, 1, 12, INTERVAL, 0, 12000, false);
+-}
+-
+-describe.skip("GlobalCap v3 — سقف إجمالي صارم لكل أموال العقد (تصميم)", () => {
+-
+-  it("#1 عروض من عدّة بائعين: آخر عرض فوق commitmentCap يُرفض", async () => {
+-    const c = await deploy(); await caps(c);
+-    await btcOffer(c, c.seller,  BTC(0.16));  // $9,600
+-    await btcOffer(c, c.seller2, BTC(0.12));  // $7,200 ⇒ $16,800
+-    expect(await c.g.totalExposureUSDC()).to.equal(U(16_800));
+-    await expect(btcOffer(c, c.seller2, BTC(0.004))) // $240 ⇒ $17,040
+-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(U(17_040), COMMIT);
+-  });
+-
+-  it("#2 increaseOffer فوق الحدّ يُرفض", async () => {
+-    const c = await deploy(); await caps(c);
+-    await btcOffer(c, c.seller, BTC(0.28)); // $16,800
+-    await expect(c.m.connect(c.seller).increaseOffer(1, BTC(0.004))) // ⇒ $17,040
+-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
+-  });
+-
+-  it("#3 buy على الصافي: الأصل المباع يخرج والضمان يدخل", async () => {
+-    const c = await deploy(); await caps(c, GLOBAL, U(7_000));
+-    await btcOffer(c, c.seller, BTC(0.10)); // $6,000
+-    await expect(c.m.connect(c.buyer).buy(1, BTC(0.10), BTC(0.13), Q_BTC, 12, false)) // ضمان $7,800 > 7,000
+-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
+-    await caps(c);
+-    await c.m.connect(c.buyer).buy(1, BTC(0.10), BTC(0.13), Q_BTC, 12, false);
+-    expect(await c.g.totalExposureUSDC()).to.equal(U(7_800)); // الضمان وحده
+-  });
+-
+-  it("#4 لا عدّ مزدوج: التصفية إلى المعلّق لا تغيّر الإجمالي، والسحب يُنقصه", async () => {
+-    const c = await deploy();
+-    const usdcAddr = await c.usdc.getAddress();
+-    await c.m.connect(c.seller).createOffer(ethers.ZeroAddress, ethers.ZeroAddress, usdcAddr, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") });
+-    await c.m.connect(c.buyer).buy(1, E("1"), 0, Q_ETH, 12, false, { value: E("1.5") });
+-    const before = await c.g.totalExposureUSDC();
+-    await time.increase(Number(INTERVAL) + GRACE + 1);
+-    await c.m.connect(c.stranger).liquidatePositionPublic(1);
+-    expect(await c.g.custodyOf(ethers.ZeroAddress)).to.equal(0n);
+-    expect(await c.g.totalExposureUSDC()).to.equal(before);
+-    const pend = await c.m.pendingETH(c.seller.address);
+-    await c.m.connect(c.seller).withdrawETH();
+-    expect(await c.g.totalExposureUSDC()).to.equal(before - (pend * 3000n) / 10n ** 12n);
+-  });
+-
+-  it("#5 التبرّع لا يُحسب ويظهر منفصلاً في untrackedBalance", async () => {
+-    const c = await deploy();
+-    await btcOffer(c, c.seller, BTC(0.01));
+-    const before = await c.g.totalExposureUSDC();
+-    await c.wbtc.connect(c.buyer).transfer(c.mAddr, BTC(1));
+-    await c.stranger.sendTransaction({ to: c.mAddr, value: E("5") });
+-    expect(await c.g.totalExposureUSDC()).to.equal(before);
+-    expect(await c.g.untrackedBalance(c.wAddr)).to.equal(BTC(1));
+-    expect(await c.g.untrackedBalance(ethers.ZeroAddress)).to.equal(E("5"));
+-  });
+-
+-  it("#6 ارتفاع السعر فوق السقف: الجديد مرفوض والخروج كله يعمل", async () => {
+-    const c = await deploy(); await caps(c);
+-    await btcOffer(c, c.seller, BTC(0.05));
+-    await c.m.connect(c.buyer).buy(1, BTC(0.05), BTC(0.075), Q_BTC, 12, false); // ضمان $4,500
+-    await btcOffer(c, c.seller2, BTC(0.06));                                  // $3,600 ⇒ $8,100
+-    await c.btcFeed.setAnswer(BTC_FEED * 3n);                                  // ⇒ $24,300 > 20,000
+-    await expect(btcOffer(c, c.seller, BTC(0.001))).to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
+-    await c.m.connect(c.buyer).payInstallment(1);
+-    await c.m.connect(c.seller2).decreaseOffer(2, BTC(0.01));
+-    await c.m.connect(c.seller2).cancelOffer(2);
+-    await c.m.connect(c.buyer).withdrawExcessCollateral(1, BTC(0.01));
+-    await c.m.connect(c.buyer).earlyRepayCash(1);
+-    expect(await c.g.totalExposureUSDC()).to.equal(0n);
+-  });
+-
+-  it("#7 مغذٍّ متقادم: الإيداع مرفوض (fail-closed)، والخروج بلا سعر يعمل", async () => {
+-    const c = await deploy(); await caps(c);
+-    await btcOffer(c, c.seller, BTC(0.05));
+-    await c.m.connect(c.buyer).buy(1, BTC(0.05), BTC(0.075), Q_BTC, 12, false);
+-    await btcOffer(c, c.seller2, BTC(0.02));
+-    await c.btcFeed.setStale(7200);
+-    await expect(c.m.connect(c.seller).createOffer(ethers.ZeroAddress, ethers.ZeroAddress, await c.usdc.getAddress(), 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("0.1") }))
+-      .to.be.revertedWithCustomError(c.m, "StalePrice");
+-    await c.m.connect(c.buyer).payInstallment(1);
+-    await c.m.connect(c.seller2).cancelOffer(2);
+-    await c.m.connect(c.buyer).earlyRepayCash(1);
+-  });
+-
+-  it("#7b تعطّل ثم عودة: السداد أثناء التعطّل يرفع HF، والتعزيز بعد العودة ضمن الاحتياطي", async () => {
+-    const c = await deploy(); await caps(c);
+-    await btcOffer(c, c.seller, BTC(0.05), ethers.ZeroAddress);
+-    await c.m.connect(c.buyer).buy(1, BTC(0.05), 0, Q_BTC, 12, false, { value: E("1.5") });
+-    const hf0 = await c.m.healthFactor(1);
+-    await c.ethFeed.setStale(7200);
+-    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.1") }))
+-      .to.be.revertedWithCustomError(c.m, "StalePrice");                     // التعزيز متعذّر
+-    await expect(c.m.connect(c.stranger).liquidatePositionPublic(1)).to.be.reverted; // والتصفية متعذّرة
+-    for (let i = 0; i < 3; i++) await c.m.connect(c.buyer).payInstallment(1);   // مسار الدين متاح
+-    await c.ethFeed.setAnswer(ETH_FEED);                                          // عودة المغذّي
+-    expect(await c.m.healthFactor(1)).to.be.greaterThan(hf0);
+-    await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.1") });          // التعزيز يعود
+-  });
+-
+-  it("#8 احتياطي الإنقاذ داخل السقف الصارم", async () => {
+-    const c = await deploy(); await caps(c);
+-    // مركز: بيع cbBTC بضمان ETH — دين $3,234، ضمان 1.5 ETH
+-    await btcOffer(c, c.seller, BTC(0.05), ethers.ZeroAddress);
+-    await c.m.connect(c.buyer).buy(1, BTC(0.05), 0, Q_BTC, 12, false, { value: E("1.5") });
+-    await c.ethFeed.setAnswer(240_000_000_000n);          // ETH $2,400 ⇒ ضمان $3,600، HF ≈ 111%
+-    await btcOffer(c, c.seller2, BTC(0.22));              // $13,200 ⇒ إجمالي $16,800 ≤ 17,000
+-
+-    // (أ) التزام جديد يتجاوز commitmentCap ⇒ مرفوض
+-    await expect(btcOffer(c, c.seller2, BTC(0.005))).to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
+-    // (ب) إنقاذ في نطاق الاحتياطي حتى HF ≤ 150% ⇒ مسموح (إجمالي $17,520، HF ≈ 134%)
+-    await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") });
+-    // (ج) ركن فوق 150% في نطاق الاحتياطي ⇒ مرفوض (HF ≈ 156%)
+-    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") }))
+-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded");
+-    // (د) تجاوز globalCap مرفوض دائماً حتى للإنقاذ
+-    await c.btcFeed.setAnswer((BTC_FEED * 13n) / 10n);    // العرض ⇒ $17,160
+-    await c.ethFeed.setAnswer(195_000_000_000n);          // ضمان 1.8 ETH ⇒ $3,510، HF ≈ 108.5%
+-    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") })) // ⇒ $21,255 > 20,000
+-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
+-  });
+-
+-  it("#9 (0,0) معطّل · الإعداد للمالك فقط · (0,k>0) وk>g مرفوضان", async () => {
+-    const c = await deploy();
+-    expect(await c.g.globalCapUSDC()).to.equal(0n);
+-    await btcOffer(c, c.seller, BTC(5)); // $300,000 — لا حدّ عند (0,0)
+-    await expect(c.g.connect(c.stranger).setCustodyCaps(GLOBAL, COMMIT))
+-      .to.be.revertedWithCustomError(c.m, "OwnableUnauthorizedAccount");
+-    await expect(c.g.connect(c.owner).setCustodyCaps(GLOBAL, GLOBAL + 1n))
+-      .to.be.revertedWithCustomError(c.m, "InvalidParams");
+-    await expect(c.g.connect(c.owner).setCustodyCaps(0n, COMMIT))   // متناقض
+-      .to.be.revertedWithCustomError(c.m, "InvalidParams");
+-    await expect(caps(c)).to.emit(c.m, "CustodyCapsSet").withArgs(GLOBAL, COMMIT);
+-    await expect(c.g.connect(c.owner).setCustodyCaps(0n, 0n)).to.emit(c.m, "CustodyCapsSet"); // تعطيل مقصود
+-  });
+-
+-  it("#9b CAP-V2-01: (global>0, commitment=0) يوقف الالتزامات ولا يعطّل السقف", async () => {
+-    const c = await deploy(); await caps(c);
+-    await btcOffer(c, c.seller, BTC(0.05), ethers.ZeroAddress);
+-    await c.m.connect(c.buyer).buy(1, BTC(0.05), 0, Q_BTC, 12, false, { value: E("1.5") });
+-    await c.g.connect(c.owner).setCustodyCaps(GLOBAL, 0n);
+-    // عرض يتجاوز الصارم ⇒ يُرفض بالصارم أولاً (لا «بلا حد»)
+-    await expect(btcOffer(c, c.seller2, BTC(0.3334))) // $20,004
+-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
+-    // وأي التزام صغير ⇒ موقوف
+-    await expect(btcOffer(c, c.seller2, BTC(0.001))).to.be.revertedWithCustomError(c.m, "NewCommitmentsPaused");
+-    await expect(c.m.connect(c.buyer2).buy(1, BTC(0.001), 0, Q_BTC, 12, false, { value: E("0.1") }))
+-      .to.be.revertedWithCustomError(c.m, "NewCommitmentsPaused");
+-    // الإنقاذ يبقى متاحاً حتى globalCap (HF ≤ 150%)
+-    await c.ethFeed.setAnswer(240_000_000_000n);
+-    await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") });
+-    // والخروج كذلك
+-    await c.m.connect(c.buyer).earlyRepayCash(1);
+-  });
+-
+-  it("#8b ضغط: 3 مراكز تبلغ HF 105% معاً — الثلاثة تُنقَذ إلى 130%، والثالث يُرفض إلى 150% (§5.0)", async () => {
+-    const c = await deploy(); await caps(c);
+-    // عرض cbBTC بضمان ETH يكفي لثلاثة مراكز دين كل منها ≈ $4,000 + عرض آخر غير مباع
+-    await btcOffer(c, c.seller, BTC(0.2), ethers.ZeroAddress);  // #1
+-    await btcOffer(c, c.seller2, BTC(0.027));                   // #2 — يبقى غير مباع
+-    const buyers = [c.buyer, c.buyer2, c.buyer];
+-    for (const b of buyers) {
+-      const [, , req] = await c.m.estimatePurchase(1, BTC(0.0618), 12); // ضمان 120% بالضبط
+-      await c.m.connect(b).buy(1, BTC(0.0618), 0, Q_BTC, 12, false, { value: (req * 10n ** 18n) / (3000n * 10n ** 6n) + 1n });
+-    }
+-    expect(await c.g.totalExposureUSDC()).to.be.lte(COMMIT);    // ≈ $16,886
+-    await c.ethFeed.setAnswer(262_500_000_000n);                 // ETH $2,625 ⇒ HF ≈ 105% للثلاثة
+-    const price = 2625n * 10n ** 6n;
+-    const topUp = async (id: number, hfBps: bigint) => {
+-      const debt = await c.m.getRemainingDebt(id);
+-      const col  = (await c.m.positions(id)).collateralAmount;
+-      const want = (debt * hfBps / 10000n) * 10n ** 18n / price + 1n;
+-      return want > col ? want - col : 0n;
+-    };
+-    for (const id of [1, 2, 3]) {                                // إلى 130% — الثلاثة تنجح
+-      const who = (await c.m.positions(id)).buyer === c.buyer.address ? c.buyer : c.buyer2;
+-      await c.m.connect(who).addCollateral(id, 0, { value: await topUp(id, 13000n) });
+-    }
+-    for (const id of [1, 2]) {                                   // إلى 150% — الأول والثاني ينجحان
+-      const who = (await c.m.positions(id)).buyer === c.buyer.address ? c.buyer : c.buyer2;
+-      await c.m.connect(who).addCollateral(id, 0, { value: await topUp(id, 15000n) });
+-    }
+-    await expect(c.m.connect(c.buyer).addCollateral(3, 0, { value: await topUp(3, 15000n) })) // ≈ $20,483 (مُقاس على العقد الحالي)
+-      .to.be.revertedWithCustomError(c.m, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
+-  });
+-
+-  it("#10 الثابت I1 بعد كل خطوة من مولّد السيناريوهات المُثبَتة تغطيته", async () => {
+-    const c = await deploy();
+-    const ok = await runScenario(c, 20261001, 120, async () => {
+-      expect(await c.g.custodyOf(ethers.ZeroAddress)).to.equal(await recomputeCustody(c, ethers.ZeroAddress));
+-      expect(await c.g.custodyOf(c.wAddr)).to.equal(await recomputeCustody(c, c.wAddr));
+-      expect(await c.g.accountingFault()).to.equal(false);
+-    });
+-    for (const op of OPS) expect(ok[op], op).to.be.greaterThan(0);
+-  });
+-
+-  describe("#11 الترحيل من Build 21", () => {
+-    // ⚠️ عند التنفيذ: contracts/legacy/MurabahaV6Build21.sol = مصدر التنفيذ الحي 0x0C01…83A7 (ببصمة bytecode)
+-    async function legacy() {
+-      const [owner, seller, buyer, stranger] = await ethers.getSigners();
+-      const usdc = await (await ethers.getContractFactory("MockUSDC")).deploy();
+-      const wbtc = await (await ethers.getContractFactory("MockWBTC")).deploy();
+-      const ef = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
+-      const bf = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
+-      const p: any = await upgrades.deployProxy(await ethers.getContractFactory("MurabahaV6Build21"),
+-        [await usdc.getAddress(), await wbtc.getAddress(), await ef.getAddress(), await bf.getAddress(), owner.address, owner.address],
+-        { kind: "uups", unsafeAllow: ["constructor"] });
+-      const pa = await p.getAddress(), w = await wbtc.getAddress(), u = await usdc.getAddress();
+-      for (const a of [seller, buyer]) { await wbtc.mint(a.address, BTC(5)); await usdc.mint(a.address, U(100_000));
+-        await wbtc.connect(a).approve(pa, ethers.MaxUint256); await usdc.connect(a).approve(pa, ethers.MaxUint256); }
+-      return { p, pa, w, u, wbtc, owner, seller, buyer, stranger };
+-    }
+-    const upgradeTo = (p: any, signer: any) => ethers.getContractFactory("MurabahaV6", signer).then((F) =>
+-      upgrades.upgradeProxy(p, F, { unsafeAllow: ["constructor"], call: { fn: "initializeV3", args: [GLOBAL, COMMIT] } }));
+-
+-    it("حالة مركّبة: مراكز مفتوحة ETH وcbBTC + ETH معلّق للبائع والخزينة + عرض ملغى", async () => {
+-      const L = await legacy();
+-      await L.p.connect(L.seller).createOffer(ethers.ZeroAddress, ethers.ZeroAddress, L.u, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("2") }); // #1
+-      await L.p.connect(L.seller).createOffer(L.w, L.w, L.u, BTC(0.1), 1000, 1, 12, INTERVAL, 0, 12000, false);                                     // #2
+-      await L.p.connect(L.seller).createOffer(L.w, L.w, L.u, BTC(0.02), 1000, 1, 12, INTERVAL, 0, 12000, false);                                    // #3
+-      await L.p.connect(L.seller).cancelOffer(3);
+-      await L.p.connect(L.buyer).buy(1, E("0.5"), 0, Q_ETH, 12, false, { value: E("0.8") }); // رسوم ETH ⇒ معلّق للخزينة
+-      await L.p.connect(L.buyer).buy(1, E("0.5"), 0, Q_ETH, 12, false, { value: E("0.8") });
+-      await L.p.connect(L.buyer).buy(2, BTC(0.05), BTC(0.07), Q_BTC, 12, false);
+-      await time.increase(GRACE + 3600);
+-      await L.p.connect(L.stranger).liquidatePositionPublic(1); // ⇒ معلّق للبائع والمشتري
+-      const pendBefore = await L.p.totalPendingETH();
+-      expect(pendBefore).to.be.greaterThan(0n);
+-
+-      const New = await ethers.getContractFactory("MurabahaV6");
+-      await upgrades.validateUpgrade(L.p, New, { kind: "uups", unsafeAllow: ["constructor"] });
+-      const up: any = await upgradeTo(L.p, L.owner);
+-      // العهدة = العرض #1 المتبقي + ضمان المركز #2 (ETH) | العرض #2 المتبقي + ضمان المركز #3 (cbBTC)
+-      expect(await up.custodyOf(ethers.ZeroAddress)).to.equal(E("1") + E("0.8"));
+-      expect(await up.custodyOf(L.w)).to.equal(BTC(0.05) + BTC(0.07));
+-      expect(await up.totalPendingETH()).to.equal(pendBefore); // C محسوب في الإجمالي لا في custodyOf
+-      expect(await up.accountingFault()).to.equal(false);
+-      await expect(up.connect(L.owner).initializeV3(GLOBAL, COMMIT)).to.be.reverted; // مرة واحدة فقط
+-    });
+-
+-    it("#11c CAP-V2-02: صلاحية initializeV3 معزولة عن صلاحية الترقية", async () => {
+-      // في بيئة الاختبار فقط: ترقية بلا تهيئة حتى يصل الاستدعاء إلى initializeV3 نفسها.
+-      // (رفض upgradeTo من غريب يحدث في _authorizeUpgrade قبلها، فلا يثبت حماية التهيئة.)
+-      const L = await legacy();
+-      const up: any = await upgrades.upgradeProxy(L.p, await ethers.getContractFactory("MurabahaV6", L.owner),
+-        { unsafeAllow: ["constructor"] });
+-      await expect(up.connect(L.stranger).initializeV3(GLOBAL, COMMIT))
+-        .to.be.revertedWithCustomError(up, "OwnableUnauthorizedAccount").withArgs(L.stranger.address);
+-      await up.connect(L.owner).initializeV3(GLOBAL, COMMIT);
+-      expect(await up.globalCapUSDC()).to.equal(GLOBAL);
+-      await expect(up.connect(L.owner).initializeV3(GLOBAL, COMMIT))
+-        .to.be.revertedWithCustomError(up, "InvalidInitialization");
+-    });
+-
+-    it("initializeV3 ترفض (0, k>0) وk > g", async () => {
+-      const L = await legacy();
+-      const up: any = await upgrades.upgradeProxy(L.p, await ethers.getContractFactory("MurabahaV6", L.owner),
+-        { unsafeAllow: ["constructor"] });
+-      await expect(up.connect(L.owner).initializeV3(0n, COMMIT)).to.be.revertedWithCustomError(up, "InvalidParams");
+-      await expect(up.connect(L.owner).initializeV3(GLOBAL, GLOBAL + 1n)).to.be.revertedWithCustomError(up, "InvalidParams");
+-    });
+-
+-    it("tokenList مكرّرة في الحالة القديمة ⇒ الترقية تُرفض", async () => {
+-      const L = await legacy();
+-      await L.p.connect(L.owner).removeSupportedToken(L.w);
+-      await L.p.connect(L.owner).addSupportedToken(L.w, await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8).then((f) => f.getAddress()), 8, false);
+-      expect((await L.p.getSupportedTokens()).length).to.equal(4); // يثبت خلل Build 21
+-      await expect(upgradeTo(L.p, L.owner)).to.be.reverted;
+-    });
+-  });
+-
+-  it("#12 رمز مُطفأ بعهدة قائمة يبقى محسوباً", async () => {
+-    const c = await deploy();
+-    await btcOffer(c, c.seller, BTC(0.1));
+-    const before = await c.g.totalExposureUSDC();
+-    await c.m.connect(c.owner).removeSupportedToken(c.wAddr);
+-    expect(await c.g.totalExposureUSDC()).to.equal(before);
+-  });
+-
+-  it("#13 إعادة تفعيل رمز: لا تكرار ولا تضاعف · العشريات ثابتة · تغيير المغذّي معلَن", async () => {
+-    const c = await deploy();
+-    await btcOffer(c, c.seller, BTC(0.1));
+-    const before = await c.g.totalExposureUSDC();
+-    const n = (await c.m.getSupportedTokens()).length;
+-    await c.m.connect(c.owner).removeSupportedToken(c.wAddr);
+-    await expect(c.m.connect(c.owner).addSupportedToken(c.wAddr, await c.btcFeed.getAddress(), 18, false))
+-      .to.be.revertedWithCustomError(c.m, "InvalidParams");                   // عشريات مختلفة
+-    const feed2 = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
+-    await expect(c.m.connect(c.owner).addSupportedToken(c.wAddr, await feed2.getAddress(), 8, false))
+-      .to.emit(c.m, "TokenFeedChanged");
+-    expect((await c.m.getSupportedTokens()).length).to.equal(n);
+-    expect(await c.g.totalExposureUSDC()).to.equal(before);
+-  });
+-
+-  it("#14 خلل محاسبي: الخروج ينجح، الإيداع يتوقف، المصالحة محمية", async () => {
+-    const H = await ethers.getContractFactory("MurabahaV6CustodyHarness");
+-    const c = await deploy();
+-    const h: any = await upgrades.upgradeProxy(c.m, H, { unsafeAllow: ["constructor"] });
+-    await btcOffer(c, c.seller, BTC(0.1));
+-    await h.forceCustody(c.wAddr, BTC(0.05));                        // عدّاد ناقص مفروض
+-    const bal = await c.wbtc.balanceOf(c.seller.address);
+-    await expect(h.connect(c.seller).cancelOffer(1)).to.emit(h, "AccountingFaultDetected");
+-    expect(await c.wbtc.balanceOf(c.seller.address)).to.equal(bal + BTC(0.1)); // الخروج اكتمل
+-    expect(await h.accountingFault()).to.equal(true);
+-    await expect(btcOffer(c, c.seller, BTC(0.01))).to.be.revertedWithCustomError(h, "AccountingFault");
+-
+-    await expect(h.connect(c.owner).reconcileCustody([c.wAddr], [0n]))
+-      .to.be.revertedWithCustomError(h, "ExpectedPause");             // بلا إيقاف ⇒ مرفوضة
+-    await h.connect(c.owner).pause();
+-    await expect(h.connect(c.stranger).reconcileCustody([c.wAddr], [0n]))
+-      .to.be.revertedWithCustomError(h, "OwnableUnauthorizedAccount");
+-    await expect(h.connect(c.owner).reconcileCustody([c.wAddr], [BTC(1)]))
+-      .to.be.revertedWithCustomError(h, "CustodyInsolvent");          // تخالف I2
+-    await h.connect(c.owner).reconcileCustody([c.wAddr], [await recomputeCustody(c, c.wAddr)]);
+-    await h.connect(c.owner).unpause();
+-    expect(await h.accountingFault()).to.equal(false);
+-    await btcOffer(c, c.seller, BTC(0.01));                           // الإيداع عاد
+-  });
+-
+-  it("#14b خلل في رمزين: لا تُمسح العلامة إلا بلقطة كاملة صحيحة", async () => {
+-    const H = await ethers.getContractFactory("MurabahaV6CustodyHarness");
+-    const c = await deploy();
+-    const h: any = await upgrades.upgradeProxy(c.m, H, { unsafeAllow: ["constructor"] });
+-    const usdcAddr = await c.usdc.getAddress();
+-    await btcOffer(c, c.seller, BTC(0.1));                                                   // #1 cbBTC
+-    await h.connect(c.seller).createOffer(ethers.ZeroAddress, ethers.ZeroAddress, usdcAddr, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") }); // #2 ETH
+-    await h.forceCustody(c.wAddr, BTC(0.05));
+-    await h.forceCustody(ethers.ZeroAddress, E("0.5"));
+-    await h.connect(c.seller).cancelOffer(1);  // خلل cbBTC
+-    await h.connect(c.seller).cancelOffer(2);  // خلل ETH
+-    expect(await h.accountingFault()).to.equal(true);
+-    await h.connect(c.owner).pause();
+-
+-    const list: string[] = [...(await h.getSupportedTokens())]; // [ETH, cbBTC, USDC]
+-    const truth = await Promise.all(list.map((t) => recomputeCustody(c, t)));
+-    const bad = (tokens: string[], values: bigint[]) =>
+-      expect(h.connect(c.owner).reconcileCustody(tokens, values)).to.be.revertedWithCustomError(h, "InvalidParams");
+-    await bad([], []);                                                   // فارغة
+-    await bad([c.wAddr], [truth[1]]);                                    // رمز واحد — ناقصة
+-    await bad([list[1], list[0], list[2]], [truth[1], truth[0], truth[2]]); // ترتيب مختلف
+-    await bad([list[0], list[1], list[1]], [truth[0], truth[1], truth[1]]); // مكرّر
+-    await bad(list, [truth[0], truth[1]]);                               // اختلاف الطول
+-    await bad([list[0], list[1], c.stranger.address], truth);            // رمز غريب
+-    await expect(h.connect(c.owner).reconcileCustody(list, [truth[0], BTC(9), truth[2]]))
+-      .to.be.revertedWithCustomError(h, "CustodyInsolvent");             // يخالف I2 لرمز واحد ⇒ تُرفض كلها
+-    expect(await h.accountingFault()).to.equal(true);                    // لم تُمسح
+-    await h.connect(c.owner).reconcileCustody(list, truth);
+-    expect(await h.accountingFault()).to.equal(false);
+-  });
+-
+-  it("#15 سحب يتجاوز المحاسبة: قاطع I2 يوقف الإيداع", async () => {
+-    const H = await ethers.getContractFactory("MurabahaV6CustodyHarness");
+-    const c = await deploy();
+-    const h: any = await upgrades.upgradeProxy(c.m, H, { unsafeAllow: ["constructor"] });
+-    await btcOffer(c, c.seller, BTC(0.1));
+-    await h.forceDrain(c.wAddr, c.stranger.address, BTC(0.03));      // يحاكي ثغرة
+-    await expect(btcOffer(c, c.seller2, BTC(0.01))).to.be.revertedWithCustomError(h, "CustodyInsolvent");
+-  });
+-});
+-
+-// مطابِق لأي قيمة uint (chai withArgs)
+-function anyUint() { return (v: bigint) => typeof v === "bigint"; }
+diff --git a/test/GlobalCap.test.ts b/test/GlobalCap.test.ts
+new file mode 100644
+index 0000000..6323ad6
+--- /dev/null
++++ b/test/GlobalCap.test.ts
+@@ -0,0 +1,427 @@
++import { expect } from "chai";
++import { ethers, upgrades, artifacts } from "hardhat";
++import { time } from "@nomicfoundation/hardhat-network-helpers";
++import {
++  deployScenario, runScenario, recomputeCustody, OPS,
++  U, BTC, E, INTERVAL, GRACE, ETH_FEED, BTC_FEED,
++} from "./helpers/custodyScenario";
++import { linkedFactory, UPG, withLibErrors } from "./helpers/linked";
++
++/**
++ * السقف الإجمالي — Build 22 (docs/global-cap-design.md). **مفعّل** على التنفيذ الفعلي.
++ * قرار المالك: إجمالي 20,000 · التزامات 15,000 (الاحتياطي = 5,000 للإنقاذ) · عروض غير مباعة 5,000.
++ * الأسعار في الاختبار: BTC = $60,000 · ETH = $3,000.
++ */
++const GLOBAL = U(20_000);
++const COMMIT = U(15_000);
++const OFFERS = U(5_000);
++const Q_BTC = 60000n * 10n ** 6n;
++const Q_ETH = 3000n * 10n ** 6n;
++const ZERO = ethers.ZeroAddress;
++
++async function deploy() {
++  const s = await deployScenario();
++  return { ...s, g: await withLibErrors(s.m) as any };
++}
++type Ctx = Awaited<ReturnType<typeof deploy>>;
++const caps = (c: Ctx, g = GLOBAL, k = COMMIT, o = OFFERS) => c.m.connect(c.owner).setCustodyCaps(g, k, o);
++const custodyOf = async (c: Ctx, t: string) => (await c.m.offerCustody(t)) + (await c.m.collateralCustody(t));
++/** التبرّعات تُعرض منفصلة خارج السلسلة (أُزيلت untrackedBalance من العقد — حدّ الحجم) */
++const untracked = async (c: Ctx, t: string) => {
++  const bal = t === ZERO ? await ethers.provider.getBalance(c.mAddr) : await c.wbtc.balanceOf(c.mAddr);
++  const owed = (await custodyOf(c, t)) + (t === ZERO ? await c.m.totalPendingETH() : 0n);
++  return bal - owed;
++};
++async function btcOffer(c: Ctx, who: any, amount: bigint, colToken?: string) {
++  return c.m.connect(who).createOffer(c.wAddr, colToken ?? c.wAddr, await c.usdc.getAddress(), amount, 1000, 1, 12, INTERVAL, 0, 12000, false);
++}
++const anyUint = () => (v: bigint) => typeof v === "bigint";
++
++describe("GlobalCap — سقف إجمالي صارم لكل أموال العقد (Build 22)", () => {
++
++  it("#1 حدّ العروض مشترك بين البائعين: آخر عرض يتجاوز 5,000 يُرفض", async () => {
++    const c = await deploy(); await caps(c);
++    await btcOffer(c, c.seller,  BTC(0.05)); // $3,000
++    await btcOffer(c, c.seller2, BTC(0.03)); // $1,800 ⇒ $4,800
++    expect(await c.m.totalExposureUSDC()).to.equal(U(4_800)); // كلها عروض هنا
++    await expect(btcOffer(c, c.seller2, BTC(0.004))) // $240 ⇒ $5,040
++      .to.be.revertedWithCustomError(c.g, "OfferCapExceeded").withArgs(U(5_040), OFFERS);
++  });
++
++  it("#1b حدّ الالتزامات مشترك بين المشترين: الشراء الذي يتجاوز 15,000 يُرفض", async () => {
++    const c = await deploy(); await caps(c);
++    await btcOffer(c, c.seller, BTC(0.08));                                      // $4,800
++    await c.m.connect(c.buyer).buy(1, BTC(0.08), BTC(0.13), Q_BTC, 12, false);    // ضمان $7,800
++    await btcOffer(c, c.seller2, BTC(0.08));                                     // ⇒ $12,600
++    await expect(c.m.connect(c.buyer2).buy(2, BTC(0.08), BTC(0.13), Q_BTC, 12, false)) // ⇒ $15,600
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(U(15_600), COMMIT);
++  });
++
++  it("#2 increaseOffer فوق حدّ العروض يُرفض", async () => {
++    const c = await deploy(); await caps(c);
++    await btcOffer(c, c.seller, BTC(0.08)); // $4,800
++    await expect(c.m.connect(c.seller).increaseOffer(1, BTC(0.004))) // ⇒ $5,040
++      .to.be.revertedWithCustomError(c.g, "OfferCapExceeded");
++  });
++
++  it("#3 buy على الصافي: المبيع يخرج والضمان يدخل", async () => {
++    const c = await deploy(); await caps(c, GLOBAL, U(7_000), OFFERS);
++    await btcOffer(c, c.seller, BTC(0.08)); // $4,800
++    await expect(c.m.connect(c.buyer).buy(1, BTC(0.08), BTC(0.13), Q_BTC, 12, false)) // ضمان $7,800
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(U(7_800), U(7_000));
++    await caps(c);
++    await c.m.connect(c.buyer).buy(1, BTC(0.08), BTC(0.13), Q_BTC, 12, false);
++    expect(await c.m.totalExposureUSDC()).to.equal(U(7_800)); // الضمان وحده — لا العرض المُباع
++  });
++
++  it("#4 لا عدّ مزدوج: التصفية إلى ETH المعلّق لا تغيّر الإجمالي، والسحب يُنقصه", async () => {
++    const c = await deploy();
++    await c.m.connect(c.seller).createOffer(ZERO, ZERO, await c.usdc.getAddress(), 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") });
++    await c.m.connect(c.buyer).buy(1, E("1"), 0, Q_ETH, 12, false, { value: E("1.5") });
++    const before = await c.m.totalExposureUSDC();
++    await time.increase(Number(INTERVAL) + GRACE + 1);
++    await c.m.connect(c.stranger).liquidatePositionPublic(1);
++    expect(await custodyOf(c, ZERO)).to.equal(0n);
++    expect(await c.m.totalExposureUSDC()).to.equal(before);
++    const pend = await c.m.pendingETH(c.seller.address);
++    await c.m.connect(c.seller).withdrawETH();
++    expect(await c.m.totalExposureUSDC()).to.equal(before - (pend * 3000n) / 10n ** 12n);
++  });
++
++  it("#5 التبرّع لا يُحسب في الإجمالي ويظهر منفصلاً", async () => {
++    const c = await deploy();
++    await btcOffer(c, c.seller, BTC(0.01));
++    const before = await c.m.totalExposureUSDC();
++    await c.wbtc.connect(c.buyer).transfer(c.mAddr, BTC(1));
++    await c.stranger.sendTransaction({ to: c.mAddr, value: E("5") });
++    expect(await c.m.totalExposureUSDC()).to.equal(before);
++    expect(await untracked(c, c.wAddr)).to.equal(BTC(1));
++    expect(await untracked(c, ZERO)).to.equal(E("5"));
++  });
++
++  it("#6 ارتفاع السعر فوق السقف: الجديد مرفوض والخروج كله يعمل", async () => {
++    const c = await deploy(); await caps(c);
++    await btcOffer(c, c.seller, BTC(0.05));
++    await c.m.connect(c.buyer).buy(1, BTC(0.05), BTC(0.075), Q_BTC, 12, false); // ضمان $4,500
++    await btcOffer(c, c.seller2, BTC(0.06));                                  // ⇒ $8,100
++    await c.btcFeed.setAnswer(BTC_FEED * 3n);                                  // ⇒ $24,300 > 20,000
++    await expect(btcOffer(c, c.seller, BTC(0.001)))
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
++    await c.m.connect(c.buyer).payInstallment(1);
++    await c.m.connect(c.seller2).decreaseOffer(2, BTC(0.01));
++    await c.m.connect(c.seller2).cancelOffer(2);
++    await c.m.connect(c.buyer).withdrawExcessCollateral(1, BTC(0.01));
++    await c.m.connect(c.buyer).earlyRepayCash(1);
++    expect(await c.m.totalExposureUSDC()).to.equal(0n);
++  });
++
++  it("#7 مغذٍّ متقادم: الإيداع مرفوض (fail-closed)، والخروج بلا سعر يعمل", async () => {
++    const c = await deploy(); await caps(c);
++    await btcOffer(c, c.seller, BTC(0.05));
++    await c.m.connect(c.buyer).buy(1, BTC(0.05), BTC(0.075), Q_BTC, 12, false);
++    await btcOffer(c, c.seller2, BTC(0.02));
++    await c.btcFeed.setStale(7200);
++    await expect(c.m.connect(c.seller).createOffer(ZERO, ZERO, await c.usdc.getAddress(), 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("0.1") }))
++      .to.be.revertedWithCustomError(c.g, "StalePrice");
++    await c.m.connect(c.buyer).payInstallment(1);
++    await c.m.connect(c.seller2).cancelOffer(2);
++    await c.m.connect(c.buyer).earlyRepayCash(1);
++  });
++
++  it("#7b تعطّل ثم عودة: السداد أثناء التعطّل يرفع HF، والتعزيز يعود بعد العودة", async () => {
++    const c = await deploy(); await caps(c);
++    await btcOffer(c, c.seller, BTC(0.05), ZERO);
++    await c.m.connect(c.buyer).buy(1, BTC(0.05), 0, Q_BTC, 12, false, { value: E("1.5") });
++    const hf0 = await c.m.healthFactor(1);
++    await c.ethFeed.setStale(7200);
++    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.1") }))
++      .to.be.revertedWithCustomError(c.g, "StalePrice");
++    await expect(c.m.connect(c.stranger).liquidatePositionPublic(1)).to.be.reverted;
++    for (let i = 0; i < 3; i++) await c.m.connect(c.buyer).payInstallment(1);
++    await c.ethFeed.setAnswer(ETH_FEED);
++    expect(await c.m.healthFactor(1)).to.be.greaterThan(hf0);
++    await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.1") });
++  });
++
++  it("#8 احتياطي الإنقاذ داخل السقف الصارم", async () => {
++    const c = await deploy(); await caps(c);
++    // مركز #1: بيع cbBTC بضمان ETH — دين $3,234، ضمان 1.5 ETH ($4,500)
++    await btcOffer(c, c.seller, BTC(0.05), ZERO);
++    await c.m.connect(c.buyer).buy(1, BTC(0.05), 0, Q_BTC, 12, false, { value: E("1.5") });
++    // مركز #2: ضمان cbBTC $9,000 ⇒ إجمالي $13,500
++    await btcOffer(c, c.seller2, BTC(0.08));
++    await c.m.connect(c.buyer2).buy(2, BTC(0.08), BTC(0.15), Q_BTC, 12, false);
++    await c.ethFeed.setAnswer(240_000_000_000n);          // ETH $2,400 ⇒ ضمان #1 $3,600، HF ≈ 111%
++    await btcOffer(c, c.seller2, BTC(0.035));             // $2,100 ⇒ إجمالي $14,700 ≤ 15,000
++    expect(await c.m.totalExposureUSDC()).to.equal(U(14_700));
++
++    // (أ) التزام جديد فوق 15,000 ⇒ مرفوض
++    await expect(btcOffer(c, c.seller2, BTC(0.01)))      // ⇒ $15,300
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(U(15_300), COMMIT);
++    // (ب) إنقاذ داخل الاحتياطي حتى HF ≤ 150% ⇒ مسموح ($15,420، HF ≈ 134%)
++    await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") });
++    // (ج) ركن فوق 150% داخل الاحتياطي ⇒ مرفوض ($16,140، HF ≈ 156%)
++    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") }))
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(U(16_140), COMMIT);
++    // (د) فوق 20,000 مرفوض دائماً حتى للإنقاذ
++    await c.btcFeed.setAnswer((BTC_FEED * 3n) / 2n);      // BTC $90,000 ⇒ $13,500 + $3,150
++    await c.ethFeed.setAnswer(195_000_000_000n);          // ETH $1,950 ⇒ ضمان #1 $3,510، HF ≈ 108.5%
++    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") }))
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
++  });
++
++  it("#8b ضغط: 3 مراكز تبلغ HF 105% معاً — الاحتياطي 5,000 يرفع الثلاثة إلى 150%", async () => {
++    const c = await deploy(); await caps(c);
++    const usdc = await c.usdc.getAddress();
++    const buyers = [c.buyer, c.buyer2, c.buyer];
++    for (let i = 0; i < 3; i++) {
++      // عرض لكل مركز (حدّ العروض 5,000 يمنع عرضاً واحداً كبيراً) — دين ≈ $4,000 لكل مركز
++      await c.m.connect(c.seller).createOffer(c.wAddr, ZERO, usdc, BTC(0.0618), 1000, 1, 12, INTERVAL, 0, 12000, false);
++      const id = BigInt(i * 1 + 1);
++      const [, , req] = await c.m.estimatePurchase(id, BTC(0.0618), 12);  // ضمان 120% بالضبط
++      await c.m.connect(buyers[i]).buy(id, BTC(0.0618), 0, Q_BTC, 12, false, { value: (req * 10n ** 18n) / (3000n * 10n ** 6n) + 1n });
++    }
++    await btcOffer(c, c.seller2, BTC(0.01));                     // عرض غير مباع $600
++    const exp0 = await c.m.totalExposureUSDC();
++    expect(exp0).to.be.lte(COMMIT);                                // ≈ $14,990
++    await c.ethFeed.setAnswer(262_500_000_000n);                   // ETH $2,625 ⇒ HF ≈ 105% للثلاثة
++    const price = 2625n * 10n ** 6n;
++    const topUp = async (id: number, hfBps: bigint) => {
++      const debt = await c.m.getRemainingDebt(id);
++      const col  = (await c.m.getPosition(id)).collateralAmount;
++      const want = (debt * hfBps / 10000n) * 10n ** 18n / price + 1n;
++      return want > col ? want - col : 0n;
++    };
++    for (const id of [1, 2, 3]) {
++      const who = (await c.m.getPosition(id)).buyer === c.buyer.address ? c.buyer : c.buyer2;
++      await c.m.connect(who).addCollateral(id, 0, { value: await topUp(id, 15000n) });
++      expect(await c.m.healthFactor(id)).to.be.gte(14_990n);
++    }
++    const exp1 = await c.m.totalExposureUSDC();
++    expect(exp1).to.be.lte(GLOBAL);                                // ≈ $18,591
++    console.log(`      الإجمالي: قبل الهبوط ${Number(exp0) / 1e6} · بعد إنقاذ الثلاثة إلى 150% ${Number(exp1) / 1e6}`);
++    // ركن إضافي فوق 150% ⇒ مرفوض
++    await expect(c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.2") }))
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(anyUint(), COMMIT);
++  });
++
++  it("#9 الإعداد: (0,0,0) معطّل · للمالك فقط · رفض كل تركيبة متناقضة", async () => {
++    const c = await deploy();
++    expect(await c.m.globalCapUSDC()).to.equal(0n);
++    await btcOffer(c, c.seller, BTC(5)); // $300,000 — لا حدّ
++    await expect(c.m.connect(c.stranger).setCustodyCaps(GLOBAL, COMMIT, OFFERS))
++      .to.be.revertedWithCustomError(c.g, "OwnableUnauthorizedAccount");
++    for (const [g, k, o] of [[GLOBAL, GLOBAL + 1n, OFFERS], [0n, COMMIT, 0n], [0n, 0n, OFFERS], [GLOBAL, COMMIT, COMMIT + 1n]]) {
++      await expect(c.m.connect(c.owner).setCustodyCaps(g, k, o)).to.be.revertedWithCustomError(c.g, "InvalidParams");
++    }
++    await expect(caps(c)).to.emit(c.m, "CustodyCapsSet").withArgs(GLOBAL, COMMIT, OFFERS);
++    await expect(c.m.connect(c.owner).setCustodyCaps(0n, 0n, 0n)).to.emit(c.m, "CustodyCapsSet");
++  });
++
++  it("#9b (global>0, commitment=0) يوقف الالتزامات ولا يعطّل السقف — CAP-V2-01 / CAP-V3-02", async () => {
++    const c = await deploy(); await caps(c);
++    // CAP-V3-02: يُترك في العرض كمية متاحة حتى يصل الشراء الثاني إلى فحص السقف لا فحص الكمية
++    await btcOffer(c, c.seller, BTC(0.05), ZERO);
++    await c.m.connect(c.buyer).buy(1, BTC(0.04), 0, Q_BTC, 12, false, { value: E("1.2") });
++    await c.m.connect(c.owner).setCustodyCaps(GLOBAL, 0n, 0n);
++    await expect(btcOffer(c, c.seller2, BTC(0.3334)))   // يتجاوز الصارم ⇒ الصارم أولاً
++      .to.be.revertedWithCustomError(c.g, "GlobalCapExceeded").withArgs(anyUint(), GLOBAL);
++    await expect(btcOffer(c, c.seller2, BTC(0.001))).to.be.revertedWithCustomError(c.g, "NewCommitmentsPaused");
++    await expect(c.m.connect(c.buyer2).buy(1, BTC(0.005), 0, Q_BTC, 12, false, { value: E("0.2") }))
++      .to.be.revertedWithCustomError(c.g, "NewCommitmentsPaused");
++    await c.ethFeed.setAnswer(240_000_000_000n);           // HF ≈ 111%
++    await c.m.connect(c.buyer).addCollateral(1, 0, { value: E("0.3") }); // إنقاذ ⇒ HF ≈ 139%
++    await c.m.connect(c.buyer).earlyRepayCash(1);          // والخروج كذلك
++  });
++
++  it("#10 الثابت I1 بعد كل معاملة (مولّد السيناريوهات، 16 مساراً)", async () => {
++    const c = await deploy();
++    const ok = await runScenario(c, 20261001, 120, async () => {
++      expect(await custodyOf(c, ZERO)).to.equal(await recomputeCustody(c, ZERO));
++      expect(await custodyOf(c, c.wAddr)).to.equal(await recomputeCustody(c, c.wAddr));
++      expect(await c.m.accountingFault()).to.equal(false);
++    });
++    for (const op of OPS) expect(ok[op], op).to.be.greaterThan(0);
++  });
++
++  describe("#11 الترحيل من Build 21 (مصدر مطابق للتنفيذ الحي 0x0C01…83A7)", () => {
++    async function legacy() {
++      const [owner, seller, buyer, stranger] = await ethers.getSigners();
++      const usdc = await (await ethers.getContractFactory("MockUSDC")).deploy();
++      const wbtc = await (await ethers.getContractFactory("MockWBTC")).deploy();
++      const ef = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
++      const bf = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
++      const p: any = await upgrades.deployProxy(await ethers.getContractFactory("MurabahaV6Build21"),
++        [await usdc.getAddress(), await wbtc.getAddress(), await ef.getAddress(), await bf.getAddress(), owner.address, owner.address],
++        { kind: "uups", unsafeAllow: ["constructor"] });
++      const pa = await p.getAddress(), w = await wbtc.getAddress(), u = await usdc.getAddress();
++      for (const a of [seller, buyer]) { await wbtc.mint(a.address, BTC(5)); await usdc.mint(a.address, U(100_000));
++        await wbtc.connect(a).approve(pa, ethers.MaxUint256); await usdc.connect(a).approve(pa, ethers.MaxUint256); }
++      return { p, pa, w, u, wbtc, owner, seller, buyer, stranger };
++    }
++    const upgradeAtomic = async (p: any, signer: any) =>
++      upgrades.upgradeProxy(p, await linkedFactory("MurabahaV6", signer), { ...UPG, call: { fn: "initializeV3", args: [GLOBAL, COMMIT, OFFERS] } });
++
++    it("حالة مركّبة: مراكز ETH وcbBTC مفتوحة + ETH معلّق للبائع والخزينة + عرض ملغى", async () => {
++      const L = await legacy();
++      await L.p.connect(L.seller).createOffer(ZERO, ZERO, L.u, 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("2") });
++      await L.p.connect(L.seller).createOffer(L.w, L.w, L.u, BTC(0.1), 1000, 1, 12, INTERVAL, 0, 12000, false);
++      await L.p.connect(L.seller).createOffer(L.w, L.w, L.u, BTC(0.02), 1000, 1, 12, INTERVAL, 0, 12000, false);
++      await L.p.connect(L.seller).cancelOffer(3);
++      await L.p.connect(L.buyer).buy(1, E("0.5"), 0, Q_ETH, 12, false, { value: E("0.8") });
++      await L.p.connect(L.buyer).buy(1, E("0.5"), 0, Q_ETH, 12, false, { value: E("0.8") });
++      await L.p.connect(L.buyer).buy(2, BTC(0.05), BTC(0.07), Q_BTC, 12, false);
++      await time.increase(GRACE + 3600);
++      await L.p.connect(L.stranger).liquidatePositionPublic(1);
++      const pendBefore = await L.p.totalPendingETH();
++      expect(pendBefore).to.be.greaterThan(0n);
++
++      await upgrades.validateUpgrade(L.p, await linkedFactory("MurabahaV6"), { kind: "uups", ...UPG });
++      const up: any = await upgradeAtomic(L.p, L.owner);
++      expect(await up.offerCustody(ZERO)).to.equal(E("1"));                // العرض #1 المتبقي
++      expect(await up.collateralCustody(ZERO)).to.equal(E("0.8"));         // ضمان المركز #2
++      expect(await up.offerCustody(L.w)).to.equal(BTC(0.05));              // العرض #2 المتبقي
++      expect(await up.collateralCustody(L.w)).to.equal(BTC(0.07));         // ضمان المركز #3
++      expect(await up.totalPendingETH()).to.equal(pendBefore);
++      expect(await up.accountingFault()).to.equal(false);
++      expect(await up.globalCapUSDC()).to.equal(GLOBAL);
++      await expect(up.connect(L.owner).initializeV3(GLOBAL, COMMIT, OFFERS)).to.be.reverted;
++    });
++
++    it("#11c CAP-V2-02: صلاحية initializeV3 معزولة عن صلاحية الترقية", async () => {
++      const L = await legacy();
++      const up: any = await upgrades.upgradeProxy(L.p, await linkedFactory("MurabahaV6", L.owner), UPG);
++      const g = await withLibErrors(up);
++      await expect(up.connect(L.stranger).initializeV3(GLOBAL, COMMIT, OFFERS))
++        .to.be.revertedWithCustomError(g, "OwnableUnauthorizedAccount").withArgs(L.stranger.address);
++      await up.connect(L.owner).initializeV3(GLOBAL, COMMIT, OFFERS);
++      expect(await up.globalCapUSDC()).to.equal(GLOBAL);
++      await expect(up.connect(L.owner).initializeV3(GLOBAL, COMMIT, OFFERS))
++        .to.be.revertedWithCustomError(g, "InvalidInitialization");
++    });
++
++    it("initializeV3 ترفض التركيبات المتناقضة", async () => {
++      const L = await legacy();
++      const up: any = await upgrades.upgradeProxy(L.p, await linkedFactory("MurabahaV6", L.owner), UPG);
++      const g = await withLibErrors(up);
++      await expect(up.connect(L.owner).initializeV3(0n, COMMIT, 0n)).to.be.revertedWithCustomError(g, "InvalidParams");
++      await expect(up.connect(L.owner).initializeV3(GLOBAL, GLOBAL + 1n, OFFERS)).to.be.revertedWithCustomError(g, "InvalidParams");
++      await expect(up.connect(L.owner).initializeV3(GLOBAL, COMMIT, COMMIT + 1n)).to.be.revertedWithCustomError(g, "InvalidParams");
++    });
++
++    it("tokenList مكرّرة في الحالة القديمة (خلل Build 21) ⇒ الترقية الذرّية تُرفض", async () => {
++      const L = await legacy();
++      await L.p.connect(L.owner).removeSupportedToken(L.w);
++      const f2 = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
++      await L.p.connect(L.owner).addSupportedToken(L.w, await f2.getAddress(), 8, false);
++      expect((await L.p.getSupportedTokens()).length).to.equal(4); // يثبت الخلل في الكود الحي
++      await expect(upgradeAtomic(L.p, L.owner)).to.be.reverted;
++    });
++  });
++
++  it("#12 رمز مُطفأ بعهدة قائمة يبقى محسوباً", async () => {
++    const c = await deploy();
++    await btcOffer(c, c.seller, BTC(0.1));
++    const before = await c.m.totalExposureUSDC();
++    await c.m.connect(c.owner).removeSupportedToken(c.wAddr);
++    expect(await c.m.totalExposureUSDC()).to.equal(before);
++  });
++
++  it("#13 إعادة تفعيل رمز: لا تكرار ولا تضاعف · العشريات ثابتة · تغيير المغذّي معلَن", async () => {
++    const c = await deploy();
++    await btcOffer(c, c.seller, BTC(0.1));
++    const before = await c.m.totalExposureUSDC();
++    const n = (await c.m.getSupportedTokens()).length;
++    await c.m.connect(c.owner).removeSupportedToken(c.wAddr);
++    await expect(c.m.connect(c.owner).addSupportedToken(c.wAddr, await c.btcFeed.getAddress(), 18, false))
++      .to.be.revertedWithCustomError(c.g, "InvalidParams");
++    const feed2 = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
++    await expect(c.m.connect(c.owner).addSupportedToken(c.wAddr, await feed2.getAddress(), 8, false))
++      .to.emit(c.m, "TokenFeedChanged");
++    expect((await c.m.getSupportedTokens()).length).to.equal(n);
++    expect(await c.m.totalExposureUSDC()).to.equal(before);
++  });
++
++  /** عقد اختبار الخلل (لا يُنشر) — يرث MurabahaV6 فيحتاج المكتبات نفسها */
++  const harness = async (c: Ctx) => {
++    const h: any = await upgrades.upgradeProxy(c.m, await linkedFactory("MurabahaV6CustodyHarness"), UPG);
++    return { h, hg: await withLibErrors(h) as any };
++  };
++  const fullSnapshot = async (c: Ctx, h: any) => {
++    const list: string[] = [...(await h.getSupportedTokens())];      // [ETH, cbBTC, USDC]
++    const offerV: bigint[] = [], colV: bigint[] = [];
++    for (const t of list) {
++      let o = 0n, k = 0n;
++      for (let i = 1n; i < (await h.nextOfferId()); i++) { const x = await h.getOffer(i); if (x.state === 0n && x.saleToken === t) o += x.saleAmount; }
++      for (let i = 1n; i < (await h.nextPositionId()); i++) { const x = await h.getPosition(i); if (x.state === 0n && x.collateralToken === t) k += x.collateralAmount; }
++      offerV.push(o); colV.push(k);
++    }
++    return { list, offerV, colV };
++  };
++
++  it("#14 خلل محاسبي: الخروج ينجح، الإيداع يتوقف، المصالحة محمية — CAP-V3-03", async () => {
++    const c = await deploy();
++    const { h, hg } = await harness(c);
++    await btcOffer(c, c.seller, BTC(0.1));
++    await h.forceOfferCustody(c.wAddr, BTC(0.05));                        // عدّاد ناقص مفروض
++    const bal = await c.wbtc.balanceOf(c.seller.address);
++    await expect(h.connect(c.seller).cancelOffer(1)).to.emit(h, "AccountingFaultDetected");
++    expect(await c.wbtc.balanceOf(c.seller.address)).to.equal(bal + BTC(0.1)); // الخروج اكتمل
++    expect(await h.accountingFault()).to.equal(true);
++    await expect(btcOffer(c, c.seller, BTC(0.01))).to.be.revertedWithCustomError(hg, "AccountingFault");
++
++    const snap = await fullSnapshot(c, h);
++    await expect(h.connect(c.owner).reconcileCustody(snap.list, snap.offerV, snap.colV))
++      .to.be.revertedWithCustomError(hg, "ExpectedPause");                 // بلا إيقاف
++    await h.connect(c.owner).pause();
++    await expect(h.connect(c.stranger).reconcileCustody(snap.list, snap.offerV, snap.colV))
++      .to.be.revertedWithCustomError(hg, "OwnableUnauthorizedAccount");
++    const bad = [...snap.offerV]; bad[1] = BTC(1);                         // cbBTC وحده يخالف I2
++    await expect(h.connect(c.owner).reconcileCustody(snap.list, bad, snap.colV))
++      .to.be.revertedWithCustomError(hg, "CustodyInsolvent");
++    await h.connect(c.owner).reconcileCustody(snap.list, snap.offerV, snap.colV);
++    await h.connect(c.owner).unpause();
++    expect(await h.accountingFault()).to.equal(false);
++    await btcOffer(c, c.seller, BTC(0.01));                                // الإيداع عاد
++  });
++
++  it("#14b خلل في رمزين: العلم لا يُمسح إلا بلقطة كاملة صحيحة", async () => {
++    const c = await deploy();
++    const { h, hg } = await harness(c);
++    await btcOffer(c, c.seller, BTC(0.1));
++    await h.connect(c.seller).createOffer(ZERO, ZERO, await c.usdc.getAddress(), 0, 1000, 1, 12, INTERVAL, 0, 12000, false, { value: E("1") });
++    await h.forceOfferCustody(c.wAddr, BTC(0.05));
++    await h.forceOfferCustody(ZERO, E("0.5"));
++    await h.connect(c.seller).cancelOffer(1);
++    await h.connect(c.seller).cancelOffer(2);
++    expect(await h.accountingFault()).to.equal(true);
++    await h.connect(c.owner).pause();
++    const { list, offerV, colV } = await fullSnapshot(c, h);
++    const bad = (t: string[], o: bigint[], k: bigint[]) =>
++      expect(h.connect(c.owner).reconcileCustody(t, o, k)).to.be.revertedWithCustomError(hg, "InvalidParams");
++    await bad([], [], []);                                                         // فارغة
++    await bad([c.wAddr], [offerV[1]], [colV[1]]);                                  // رمز واحد — ناقصة
++    await bad([list[1], list[0], list[2]], [offerV[1], offerV[0], offerV[2]], [colV[1], colV[0], colV[2]]); // ترتيب
++    await bad([list[0], list[1], list[1]], offerV, colV);                          // مكرّر
++    await bad(list, [offerV[0], offerV[1]], colV);                                 // اختلاف الطول
++    await bad([list[0], list[1], c.stranger.address], offerV, colV);               // رمز غريب
++    expect(await h.accountingFault()).to.equal(true);
++    await h.connect(c.owner).reconcileCustody(list, offerV, colV);
++    expect(await h.accountingFault()).to.equal(false);
++  });
++
++  it("#15 سحب يتجاوز المحاسبة: قاطع I2 يوقف الإيداع", async () => {
++    const c = await deploy();
++    const { h, hg } = await harness(c);
++    await btcOffer(c, c.seller, BTC(0.1));
++    await h.forceDrain(c.wAddr, c.stranger.address, BTC(0.03));
++    await expect(btcOffer(c, c.seller2, BTC(0.01))).to.be.revertedWithCustomError(hg, "CustodyInsolvent");
++  });
++
++  it("#16 الحجم: MurabahaV6 تحت حدّ EIP-170 (24,576)", async () => {
++    const a = await artifacts.readArtifact("MurabahaV6");
++    const size = (a.deployedBytecode.length - 2) / 2;
++    console.log(`      MurabahaV6 runtime = ${size} بايت · الهامش = ${24_576 - size}`);
++    expect(size).to.be.lte(24_576);
++  });
++});
+diff --git a/test/MurabahaV6.comprehensive.test.ts b/test/MurabahaV6.comprehensive.test.ts
+index 01e1db3..9ffab88 100644
+--- a/test/MurabahaV6.comprehensive.test.ts
++++ b/test/MurabahaV6.comprehensive.test.ts
+@@ -1,6 +1,7 @@
+ import { expect } from "chai";
+ import { ethers, upgrades } from "hardhat";
+ import { time } from "@nomicfoundation/hardhat-network-helpers";
++import { linkedFactory, UPG, withLibErrors } from "./helpers/linked";
+ 
+ // ── Unit helpers ──────────────────────────────────────────────────────────
+ const U   = (n: number) => BigInt(Math.round(n * 1e6));   // USDC 6 dec
+@@ -46,13 +47,13 @@ async function deploy() {
+   const wbtc    = await (await ethers.getContractFactory("MockWBTC")).deploy();
+   const ethFeed = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
+   const btcFeed = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
+-  const Murabaha = await ethers.getContractFactory("MurabahaV6");
++  const Murabaha = await linkedFactory("MurabahaV6");
+   const m = await upgrades.deployProxy(Murabaha, [
+     await usdc.getAddress(), await wbtc.getAddress(),
+     await ethFeed.getAddress(), await btcFeed.getAddress(),
+     owner.address, // brokerTreasury
+     owner.address  // protocolTreasury
+-  ], { kind: "uups", unsafeAllow: ["constructor"] });
++  ], { kind: "uups", ...UPG });
+   await m.setKeeper(keeper.address);
+   await wbtc.mint(seller.address, BTC(100));
+   for (const b of [buyer, buyer2]) {
+@@ -83,7 +84,7 @@ async function openPosition(ctx: Ctx, opts: {
+ describe("A — Constructor", () => {
+   it("يرفض zero-address لكل معامل (عبر initialize)", async () => {
+     const { usdc, wbtc, ethFeed, btcFeed, owner } = await deploy();
+-    const F = await ethers.getContractFactory("MurabahaV6");
++    const F = await linkedFactory("MurabahaV6");
+     const [u, w, ef, bf, o] = [
+       await usdc.getAddress(), await wbtc.getAddress(),
+       await ethFeed.getAddress(), await btcFeed.getAddress(), owner.address,
+@@ -95,7 +96,7 @@ describe("A — Constructor", () => {
+       [u, w, ef, z, o, o],  [u, w, ef, bf, z, o], [u, w, ef, bf, o, z],
+     ] as [string, string, string, string, string, string][]) {
+       await expect(
+-        upgrades.deployProxy(F, args, { kind: "uups", unsafeAllow: ["constructor"] })
++        upgrades.deployProxy(F, args, { kind: "uups", ...UPG })
+       ).to.be.reverted;
+     }
+   });
+@@ -336,7 +337,7 @@ describe("D — الشراء وتحقق الأرقام", () => {
+     await wbtc.connect(buyer).approve(mAddr, BTC(1));
+     // BTC(1) @ $60k = $60k < M.reqCollateral ($78,408)
+     await expect(m.connect(buyer).buy(1, BTC(1), BTC(1), Q_BTC, 12, false))
+-      .to.be.revertedWithCustomError(m, "InsufficientCollateral");
++      .to.be.revertedWithCustomError(await withLibErrors(m), "InsufficientCollateral");
+   });
+ 
+   it("يرفض انزلاق > 1%", async () => {
+@@ -349,7 +350,7 @@ describe("D — الشراء وتحقق الأرقام", () => {
+     await wbtc.connect(buyer).approve(mAddr, BTC(2));
+     const stale = 59000n * 10n ** 6n; // diff = $1,000 > 1% of $60,000
+     await expect(m.connect(buyer).buy(1, BTC(1), BTC(2), stale, 12, false))
+-      .to.be.revertedWithCustomError(m, "SlippageExceeded");
++      .to.be.revertedWithCustomError(await withLibErrors(m), "SlippageExceeded");
+   });
+ 
+   it("يقبل انزلاق 0.5% (ضمن الحد)", async () => {
+@@ -1285,7 +1286,7 @@ describe("P — شراء جزئي ومرونة الأقساط", () => {
+ 
+     await expect(
+       m.connect(buyer).buy(1, BTC(0.2), BTC(0.3), Q_BTC, 15, false)
+-    ).to.be.revertedWithCustomError(m, "InvalidInstallments");
++    ).to.be.revertedWithCustomError(await withLibErrors(m), "InvalidInstallments");
+   });
+ 
+   // ────────────────────────────────────────────────────────────────────────
+@@ -1338,7 +1339,7 @@ describe("P — شراء جزئي ومرونة الأقساط", () => {
+ 
+     await expect(
+       m.connect(buyer).buy(1, BTC(0.05), BTC(0.1), Q_BTC, 12, false)
+-    ).to.be.revertedWithCustomError(m, "BelowMinPurchase");
++    ).to.be.revertedWithCustomError(await withLibErrors(m), "BelowMinPurchase");
+   });
+ 
+   // ────────────────────────────────────────────────────────────────────────
+@@ -1398,7 +1399,7 @@ describe("P — شراء جزئي ومرونة الأقساط", () => {
+     // محاولة بـ 1.5 BTC (يكفي عند 120% لكن لا يكفي عند 150%)
+     await expect(
+       m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)
+-    ).to.be.revertedWithCustomError(m, "InsufficientCollateral");
++    ).to.be.revertedWithCustomError(await withLibErrors(m), "InsufficientCollateral");
+ 
+     // بـ 1.7 BTC يكفي
+     await expect(
+@@ -1427,7 +1428,7 @@ describe("Q — FB-31: حماية ضد Self-Buy", () => {
+     await usdc.connect(seller).approve(mAddr, U(2_000_000));
+     await expect(
+       m.connect(seller).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)
+-    ).to.be.revertedWithCustomError(m, "SelfBuyNotAllowed");
++    ).to.be.revertedWithCustomError(await withLibErrors(m), "SelfBuyNotAllowed");
+   });
+ 
+   it("Q-02: مشتري آخر ينجح في الشراء (المسار العادي)", async () => {
+@@ -1552,9 +1553,9 @@ describe("S — إصلاحات التحصين", () => {
+     await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(1), 1, 1, 12, INTERVAL, 0, 12000, false);
+     await wbtc.connect(buyer).approve(mAddr, BTC(2));
+     await expect(m.connect(buyer).buy(1, BTC(1), BTC(2), Q_BTC, 1, false))
+-      .to.be.revertedWithCustomError(m, "EffectiveProfitTooLow");
++      .to.be.revertedWithCustomError(await withLibErrors(m), "EffectiveProfitTooLow");
+     await expect(m.estimatePurchase(1, BTC(1), 1))
+-      .to.be.revertedWithCustomError(m, "EffectiveProfitTooLow");
++      .to.be.revertedWithCustomError(await withLibErrors(m), "EffectiveProfitTooLow");
+   });
+ 
+   it("addCollateral يرفض عند تعطيل توكن الضمان", async () => {
+@@ -1671,7 +1672,7 @@ describe("S — إصلاحات التحصين", () => {
+     expect(needed).to.equal(true);
+     expect(data).to.equal(enc(2)); // لا #1
+     await m.connect(keeper).performUpkeep(data);
+-    expect((await m.positions(2)).paidInstallments).to.equal(1); // قسط ETH دُفع فعلاً
++    expect((await m.getPosition(2)).paidInstallments).to.equal(1); // قسط ETH دُفع فعلاً
+ 
+     // عودة المغذّي ⇒ #1 يُقترَح للتصفية من جديد وتنجح
+     await btcFeed.setAnswer(BTC_FEED);
+@@ -1688,7 +1689,7 @@ describe("S — إصلاحات التحصين", () => {
+     const { m, usdc, seller, buyer } = ctx;
+     const N = 13;
+     await openPosition(ctx, { inst: N });
+-    const T: bigint = (await m.positions(1)).totalPayable;
++    const T: bigint = (await m.getPosition(1)).totalPayable;
+     expect(T % BigInt(N)).to.be.greaterThan(1n); // وإلا لا يظهر الفرق
+     const before = await usdc.balanceOf(seller.address);
+     for (let k = 0; k < N; k++) {
+@@ -1703,7 +1704,7 @@ describe("S — إصلاحات التحصين", () => {
+     const ctx = await deploy();
+     const { m, usdc, seller, buyer } = ctx;
+     await openPosition(ctx, { inst: 13 });
+-    const T: bigint = (await m.positions(1)).totalPayable;
++    const T: bigint = (await m.getPosition(1)).totalPayable;
+     const before = await usdc.balanceOf(seller.address);
+     for (let k = 0; k < 5; k++) await m.connect(buyer).payInstallment(1);
+     await m.connect(buyer).earlyRepayCash(1);
+@@ -1977,7 +1978,7 @@ describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحص
+     await wbtc.connect(buyer).approve(mAddr, BTC(50));
+     await usdc.connect(buyer).approve(mAddr, U(2_000_000));
+     await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false))
+-      .to.be.revertedWithCustomError(m, "PositionExceedsCap");
++      .to.be.revertedWithCustomError(await withLibErrors(m), "PositionExceedsCap");
+   });
+ 
+   it("Build 20: سقف عدد المراكز النشطة يُرفض عند بلوغه", async () => {
+@@ -1993,7 +1994,7 @@ describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحص
+     await usdc.connect(buyer).approve(mAddr, U(2_000_000));
+     await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false); // #1 ينجح
+     await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)) // #2 يتجاوز السقف
+-      .to.be.revertedWithCustomError(m, "ActivePositionsCapReached");
++      .to.be.revertedWithCustomError(await withLibErrors(m), "ActivePositionsCapReached");
+   });
+ 
+   it("Build 20: رفع السقف يعيد السماح (إطلاق محروس ثم توسّع)", async () => {
+diff --git a/test/MurabahaV6.security-fixes.test.ts b/test/MurabahaV6.security-fixes.test.ts
+index cd4000d..e9e798a 100644
+--- a/test/MurabahaV6.security-fixes.test.ts
++++ b/test/MurabahaV6.security-fixes.test.ts
+@@ -2,6 +2,7 @@
+ import { expect } from "chai";
+ import { ethers, upgrades } from "hardhat";
+ import { time } from "@nomicfoundation/hardhat-network-helpers";
++import { linkedFactory, UPG } from "./helpers/linked";
+ 
+ // ── وحدات ──
+ const U   = (n: number) => BigInt(Math.round(n * 1e6));   // USDC 6 dec
+@@ -20,12 +21,12 @@ async function deploy() {
+   const wbtc    = await (await ethers.getContractFactory("MockWBTC")).deploy();
+   const ethFeed = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
+   const btcFeed = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
+-  const Murabaha = await ethers.getContractFactory("MurabahaV6");
++  const Murabaha = await linkedFactory("MurabahaV6");
+   const m = await upgrades.deployProxy(Murabaha, [
+     await usdc.getAddress(), await wbtc.getAddress(),
+     await ethFeed.getAddress(), await btcFeed.getAddress(),
+     owner.address, owner.address,
+-  ], { kind: "uups", unsafeAllow: ["constructor"] });
++  ], { kind: "uups", ...UPG });
+   await m.setKeeper(keeper.address);
+   await wbtc.mint(seller.address, BTC(100));
+   for (const b of [buyer, buyer2]) {
+@@ -133,14 +134,12 @@ describe("H2 — حالات حدّية ومسار التكامل", () => {
+ // ═══════════════════════════════════════════════════════════════════════════
+ // M5 — initializeV2 يجب أن تكون محميّة بـ onlyOwner (تُستدعى عبر فرع — المرحلة 11)
+ // ═══════════════════════════════════════════════════════════════════════════
+-describe("M5 — initializeV2 محميّة بـ onlyOwner", () => {
+-  it("غير المالك لا يستطيع استدعاء initializeV2", async () => {
++describe("M5 — initializeV2 أُزيلت في Build 22 (ترحيل Sepolia قديم؛ نسخة التهيئة على Base = 1)", () => {
++  it("لا يوجد selector لـinitializeV2 في الكود المنشور ولا في الواجهة", async () => {
+     const ctx = await deploy();
+-    await expect(ctx.m.connect(ctx.stranger).initializeV2()).to.be.reverted;
+-  });
+-
+-  it("المالك يستطيع استدعاء initializeV2 (مرّة واحدة)", async () => {
+-    const ctx = await deploy();
+-    await expect(ctx.m.connect(ctx.owner).initializeV2()).to.not.be.reverted;
++    expect((ctx.m.interface as any).getFunction("initializeV2")).to.equal(null);
++    const sel = ethers.id("initializeV2()").slice(0, 10);
++    // استدعاء خام للـselector يرتدّ (لا fallback) — لا مسار تهيئة قديم قابل للاستدعاء
++    await expect(ctx.owner.sendTransaction({ to: await ctx.m.getAddress(), data: sel })).to.be.reverted;
+   });
+ });
+diff --git a/test/MurabahaV6.test.ts b/test/MurabahaV6.test.ts
+index fe0dff1..692275c 100644
+--- a/test/MurabahaV6.test.ts
++++ b/test/MurabahaV6.test.ts
+@@ -1,6 +1,7 @@
+ import { expect } from "chai";
+ import { ethers, upgrades } from "hardhat";
+ import { time } from "@nomicfoundation/hardhat-network-helpers";
++import { linkedFactory, UPG } from "./helpers/linked";
+ 
+ /**
+  * اختبارات V6 — Multi-Token Architecture
+@@ -28,12 +29,12 @@ async function deploy() {
+   const ethFeed = await MockFeed.deploy(300000000000n, 8); // $3000
+   const btcFeed = await MockFeed.deploy(6000000000000n, 8); // $60000
+ 
+-  const Murabaha = await ethers.getContractFactory("MurabahaV6");
++  const Murabaha = await linkedFactory("MurabahaV6");
+   const m = await upgrades.deployProxy(Murabaha, [
+     await usdc.getAddress(), await wbtc.getAddress(),
+     await ethFeed.getAddress(), await btcFeed.getAddress(),
+     owner.address, owner.address
+-  ], { kind: "uups", unsafeAllow: ["constructor"] });
++  ], { kind: "uups", ...UPG });
+ 
+   await wbtc.mint(seller.address, BTC(10));
+   await wbtc.mint(buyer.address,  BTC(5));
+diff --git a/test/foundry/Handler.sol b/test/foundry/Handler.sol
+index 7fa49f6..438c28e 100644
+--- a/test/foundry/Handler.sol
++++ b/test/foundry/Handler.sol
+@@ -3,6 +3,7 @@ pragma solidity ^0.8.22;
+ 
+ import {Test} from "forge-std/Test.sol";
+ import {MurabahaV6} from "../../contracts/MurabahaV6.sol";
++import {Offer, Position, OfferState, PositionState} from "../../contracts/libraries/MurabahaTypes.sol";
+ import {MockUSDC, MockWBTC, MockFeed} from "../../contracts/Mocks.sol";
+ 
+ /// @title Handler — يقود دورة حياة العقد بمدخلات محدودة (bounded) لحملة الثوابت.
+@@ -71,8 +72,9 @@ contract Handler is Test {
+         if (no <= 1) return;
+         uint256 offerId = bound(offerSeed, 1, no - 1);
+ 
+-        (address seller,,,,, uint256 sAmt,,, uint8 minI, uint8 maxI,,, MurabahaV6.OfferState st,) = m.offers(offerId);
+-        if (st != MurabahaV6.OfferState.ACTIVE || sAmt == 0) return; // ليس ACTIVE أو فارغ
++        Offer memory of_ = m.getOffer(offerId);
++        (address seller, uint256 sAmt, uint8 minI, uint8 maxI, OfferState st) = (of_.seller, of_.saleAmount, of_.minInstallments, of_.maxInstallments, of_.state);
++        if (st != OfferState.ACTIVE || sAmt == 0) return; // ليس ACTIVE أو فارغ
+ 
+         address buyer = _actor(buyerSeed);
+         if (buyer == seller) buyer = _actor(buyerSeed + 1); // منع Self-Buy
+@@ -95,8 +97,9 @@ contract Handler is Test {
+         uint256 np = m.nextPositionId();
+         if (np <= 1) return;
+         uint256 pid = bound(posSeed, 1, np - 1);
+-        (, address buyer,,,,,,,,,,, MurabahaV6.PositionState pst,) = m.positions(pid);
+-        if (pst != MurabahaV6.PositionState.ACTIVE) return; // ليس ACTIVE
++        Position memory po_ = m.getPosition(pid);
++        (address buyer, PositionState pst) = (po_.buyer, po_.state);
++        if (pst != PositionState.ACTIVE) return; // ليس ACTIVE
+         vm.prank(buyer);
+         try m.payInstallment(pid) { callsPay++; } catch {}
+     }
+@@ -105,8 +108,9 @@ contract Handler is Test {
+         uint256 np = m.nextPositionId();
+         if (np <= 1) return;
+         uint256 pid = bound(posSeed, 1, np - 1);
+-        (, address buyer,,,,,,,,,,, MurabahaV6.PositionState pst,) = m.positions(pid);
+-        if (pst != MurabahaV6.PositionState.ACTIVE) return;
++        Position memory po_ = m.getPosition(pid);
++        (address buyer, PositionState pst) = (po_.buyer, po_.state);
++        if (pst != PositionState.ACTIVE) return;
+         vm.prank(buyer);
+         try m.earlyRepayCash(pid) { callsEarly++; } catch {}
+     }
+@@ -115,8 +119,9 @@ contract Handler is Test {
+         uint256 np = m.nextPositionId();
+         if (np <= 1) return;
+         uint256 pid = bound(posSeed, 1, np - 1);
+-        (, address buyer,,,,,,,,,,, MurabahaV6.PositionState pst,) = m.positions(pid);
+-        if (pst != MurabahaV6.PositionState.ACTIVE) return;
++        Position memory po_ = m.getPosition(pid);
++        (address buyer, PositionState pst) = (po_.buyer, po_.state);
++        if (pst != PositionState.ACTIVE) return;
+         amt = bound(amt, 1, 1e8);
+         if (wbtc.balanceOf(buyer) < amt) return;
+         vm.prank(buyer);
+@@ -127,8 +132,9 @@ contract Handler is Test {
+         uint256 np = m.nextPositionId();
+         if (np <= 1) return;
+         uint256 pid = bound(posSeed, 1, np - 1);
+-        (, address buyer,,,,, uint256 col,,,,,, MurabahaV6.PositionState pst,) = m.positions(pid);
+-        if (pst != MurabahaV6.PositionState.ACTIVE || col == 0) return;
++        Position memory po_ = m.getPosition(pid);
++        (address buyer, uint256 col, PositionState pst) = (po_.buyer, po_.collateralAmount, po_.state);
++        if (pst != PositionState.ACTIVE || col == 0) return;
+         amt = bound(amt, 1, col);
+         vm.prank(buyer);
+         try m.withdrawExcessCollateral(pid, amt) {} catch {}
+@@ -149,16 +155,18 @@ contract Handler is Test {
+         uint256 np = m.nextPositionId();
+         if (np <= 1) return;
+         uint256 pid = bound(posSeed, 1, np - 1);
+-        (, address buyer,,,, , uint256 colBefore,,,,,, MurabahaV6.PositionState pst,) = m.positions(pid);
+-        if (pst != MurabahaV6.PositionState.ACTIVE) return;
++        Position memory po_ = m.getPosition(pid);
++        (address buyer, uint256 colBefore, PositionState pst) = (po_.buyer, po_.collateralAmount, po_.state);
++        if (pst != PositionState.ACTIVE) return;
+         address caller = _actor(callerSeed);
+         vm.prank(caller);
+         try m.liquidatePositionPublic(pid) {
+             callsLiquidate++;
+             // ثابت التسوية: بعد التصفية collateralAmount = 0، والحالة LIQUIDATED (لا خلق/إتلاف).
+             // نرفع علماً بدل assert (كي لا يُبتلع تحت fail_on_revert=false) — يُفحَص في invariant_I6.
+-            (,,,,,, uint256 colAfter,,,,,, MurabahaV6.PositionState pst2,) = m.positions(pid);
+-            if (colAfter != 0 || pst2 != MurabahaV6.PositionState.LIQUIDATED) brokenSettlement = true;
++            Position memory po2_ = m.getPosition(pid);
++            (uint256 colAfter, PositionState pst2) = (po2_.collateralAmount, po2_.state);
++            if (colAfter != 0 || pst2 != PositionState.LIQUIDATED) brokenSettlement = true;
+             settlementChecks++;
+             buyer; colBefore;
+         } catch {}
+diff --git a/test/foundry/MurabahaInvariant.t.sol b/test/foundry/MurabahaInvariant.t.sol
+index dee72ef..fdd45e4 100644
+--- a/test/foundry/MurabahaInvariant.t.sol
++++ b/test/foundry/MurabahaInvariant.t.sol
+@@ -4,6 +4,7 @@ pragma solidity ^0.8.22;
+ import {Test, console2} from "forge-std/Test.sol";
+ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+ import {MurabahaV6} from "../../contracts/MurabahaV6.sol";
++import {Offer, Position, OfferState, PositionState} from "../../contracts/libraries/MurabahaTypes.sol";
+ import {MockUSDC, MockWBTC, MockFeed} from "../../contracts/Mocks.sol";
+ import {Handler} from "./Handler.sol";
+ 
+@@ -166,9 +167,10 @@ contract MurabahaInvariant is Test {
+         (bool can,) = m.isLiquidatable(pid);
+         assertTrue(can, "should be liquidatable (overdue)");
+         m.liquidatePositionPublic(pid);
+-        (,,,,,, uint256 colAfter,,,,,, MurabahaV6.PositionState st,) = m.positions(pid);
++        Position memory po_ = m.getPosition(pid);
++        (uint256 colAfter, PositionState st) = (po_.collateralAmount, po_.state);
+         assertEq(colAfter, 0);
+-        assertTrue(st == MurabahaV6.PositionState.LIQUIDATED);
++        assertTrue(st == PositionState.LIQUIDATED);
+     }
+ 
+     // ═══════════ مساعدات قراءة الـ getters (بنية الـ struct ثابتة) ═══════════
+@@ -176,18 +178,20 @@ contract MurabahaInvariant is Test {
+     // Offer: [0]seller [1]saleTok [2]colTok [3]payTok [4]totalAmount [5]saleAmount
+     //        [6]minPurchase [7]profitBps [8]minInst [9]maxInst [10]interval [11]ratio [12]state [13]autoLiq
+     function _offerSaleAmount(uint256 id) internal view returns (uint256 s) {
+-        (,,,,, s,,,,,,,,) = m.offers(id);
++        s = m.getOffer(id).saleAmount;
+     }
+     function _offerAmounts(uint256 id) internal view returns (uint256 total, uint256 remaining) {
+-        (,,,, total, remaining,,,,,,,,) = m.offers(id);
++        Offer memory of_ = m.getOffer(id);
++        (total, remaining) = (of_.totalAmount, of_.saleAmount);
+     }
+ 
+     // Position: [0]offerId [1]buyer [2]saleTok [3]colTok [4]payTok [5]saleAmount [6]collateralAmount
+     //           [7]totalPayable [8]totalInst [9]paidInst [10]interval [11]nextDue [12]state [13]autoPay
+     function _posCollateral(uint256 id) internal view returns (uint256 c) {
+-        (,,,,,, c,,,,,,,) = m.positions(id);
++        c = m.getPosition(id).collateralAmount;
+     }
+     function _posInstallments(uint256 id) internal view returns (uint8 total, uint8 paid) {
+-        (,,,,,,, , total, paid,,,,) = m.positions(id);
++        Position memory po_ = m.getPosition(id);
++        (total, paid) = (po_.totalInstallments, po_.paidInstallments);
+     }
+ }
+diff --git a/test/helpers/custodyScenario.ts b/test/helpers/custodyScenario.ts
+index 69eec3b..fbc94b0 100644
+--- a/test/helpers/custodyScenario.ts
++++ b/test/helpers/custodyScenario.ts
+@@ -1,5 +1,6 @@
+ import { ethers, upgrades } from "hardhat";
+ import { time } from "@nomicfoundation/hardhat-network-helpers";
++import { linkedFactory, UPG } from "./linked";
+ 
+ /**
+  * مولّد سيناريوهات لمحاسبة العهدة — يُستعمل في:
+@@ -21,16 +22,17 @@ export const BTC_FEED = 6_000_000_000_000n; // $60,000
+ const PRICE_USDC: Record<string, bigint> = {}; // token → سعر بـ6 خانات
+ let offerSeq = 0; // يناوب أصل الضمان بين العروض حتى تتوفّر عروض بضمان ETH وcbBTC دائماً
+ 
+-export async function deployScenario() {
++/** @param factory اختياري — للمقارنة السلوكية (عقد مرجعي قبل إعادة الهيكلة) */
++export async function deployScenario(factory?: () => Promise<any>) {
+   const [owner, seller, seller2, buyer, buyer2, stranger] = await ethers.getSigners();
+   const usdc    = await (await ethers.getContractFactory("MockUSDC")).deploy();
+   const wbtc    = await (await ethers.getContractFactory("MockWBTC")).deploy();
+   const ethFeed = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
+   const btcFeed = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
+-  const m: any = await upgrades.deployProxy(await ethers.getContractFactory("MurabahaV6"), [
++  const m: any = await upgrades.deployProxy(factory ? await factory() : await linkedFactory("MurabahaV6"), [
+     await usdc.getAddress(), await wbtc.getAddress(),
+     await ethFeed.getAddress(), await btcFeed.getAddress(), owner.address, owner.address,
+-  ], { kind: "uups", unsafeAllow: ["constructor"] });
++  ], { kind: "uups", ...UPG });
+   const mAddr = await m.getAddress();
+   const wAddr = await wbtc.getAddress();
+   offerSeq = 0;
+@@ -66,7 +68,7 @@ const signerOf = (s: Scn, addr: string) =>
+ async function activeOffers(s: Scn) {
+   const out: { id: bigint; o: any }[] = [];
+   for (let i = 1n; i < (await s.m.nextOfferId()); i++) {
+-    const o = await s.m.offers(i);
++    const o = await s.m.getOffer(i);
+     if (o.state === 0n && o.saleAmount > 0n) out.push({ id: i, o });
+   }
+   return out;
+@@ -74,7 +76,7 @@ async function activeOffers(s: Scn) {
+ async function activePositions(s: Scn) {
+   const out: { id: bigint; p: any }[] = [];
+   for (let i = 1n; i < (await s.m.nextPositionId()); i++) {
+-    const p = await s.m.positions(i);
++    const p = await s.m.getPosition(i);
+     if (p.state === 0n) out.push({ id: i, p });
+   }
+   return out;
+@@ -208,16 +210,17 @@ export async function runOp(s: Scn, op: Op, r: (n: number) => number, check?: Ch
+       for (;;) {
+         tx = await s.m.connect(who).payInstallment(id);
+         await tx.wait();
+-        if ((await s.m.positions(id)).state !== 0n) return tx; // القسط الأخير — COMPLETED
++        if ((await s.m.getPosition(id)).state !== 0n) return tx; // القسط الأخير — COMPLETED
+         await guarded(check, "payToCompletion:payInstallment");
+       }
+     }
+     case "liquidateUnderwater": {
+-      // تصفية نقص الضمان (لا التأخّر): هبوط سعر الضمان 50% ⇒ HF < 105%، ثم يُعاد السعر
++      // تصفية نقص الضمان (لا التأخّر): هبوط سعر الضمان 90% ⇒ HF < 105% حتى لمركز زِيد ضمانه
++      // (50% كان لا يكفي لمركز مُعزَّز بـaddCollateral — ظهر في البذرة 7)، ثم يُعاد السعر
+       const { id, p } = pick(await activePositions(s));
+       const feed = isEth(p.collateralToken) ? s.ethFeed : s.btcFeed;
+       const orig = isEth(p.collateralToken) ? ETH_FEED : BTC_FEED;
+-      await feed.setAnswer(orig / 2n);
++      await feed.setAnswer(orig / 10n);
+       const tx = await s.m.connect(s.stranger).liquidatePositionPublic(id);
+       await tx.wait();
+       await feed.setAnswer(orig);
+diff --git a/test/helpers/linked.ts b/test/helpers/linked.ts
+new file mode 100644
+index 0000000..9fb963b
+--- /dev/null
++++ b/test/helpers/linked.ts
+@@ -0,0 +1,44 @@
++import { ethers, artifacts } from "hardhat";
++import type { MurabahaV6__factory } from "../../typechain-types";
++
++/**
++ * Build 22: MurabahaV6 مربوط بأربع مكتبات خارجية (حدّ الحجم — docs/size-analysis.md).
++ * كل اختبار ينشئ المصنع عبر هذه الدالة بدل getContractFactory("MurabahaV6") مباشرة.
++ */
++export const LINKED_LIBS = ["CustodyLib", "BuyLogic", "OfferLogic", "AutomationLogic"] as const;
++
++export async function deployLibs() {
++  const out: Record<string, string> = {};
++  for (const L of LINKED_LIBS) {
++    const lib = await (await ethers.getContractFactory(L)).deploy();
++    out[L] = await lib.getAddress();
++  }
++  return out;
++}
++
++/** مصنع عقد يحتاج المكتبات الأربع (MurabahaV6 أو عقد اختبار يرثه) */
++export async function linkedFactory(name?: "MurabahaV6", signer?: any): Promise<MurabahaV6__factory>;
++export async function linkedFactory(name: string, signer?: any): Promise<any>;
++export async function linkedFactory(name = "MurabahaV6", signer?: any): Promise<any> {
++  return ethers.getContractFactory(name, { libraries: await deployLibs(), signer });
++}
++
++/** خيارات OpenZeppelin upgrades للمكتبات المربوطة (مطلوبة منذ CustodyLib) */
++export const UPG = { unsafeAllow: ["constructor"] as any, unsafeAllowLinkedLibraries: true };
++
++/**
++ * أخطاء مخصّصة تُرمى من داخل المكتبات لا تظهر في ABI العقد (solc لا يضمّها). العميل —
++ * التطبيق والموقع والاختبارات — يحتاج **ABI مدموجاً** لفكّها. هذه الدالة تعيد العقد نفسه
++ * بواجهة = ABI العقد + أخطاء المكتبات الأربع (بلا تكرار).
++ */
++export async function withLibErrors<T extends { getAddress(): Promise<string>; interface: any; runner?: any }>(c: T) {
++  const seen = new Set<string>();
++  const frags: any[] = [];
++  const add = (f: any) => { const k = f.type + ":" + f.format("full"); if (!seen.has(k)) { seen.add(k); frags.push(f); } };
++  c.interface.fragments.forEach(add);
++  for (const L of LINKED_LIBS) {
++    const art = await artifacts.readArtifact(L);
++    new ethers.Interface(art.abi).fragments.filter((f: any) => f.type === "error").forEach(add);
++  }
++  return new ethers.Contract(await c.getAddress(), frags, c.runner);
++}
