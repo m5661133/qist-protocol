@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { deployScenario, BTC, E, INTERVAL } from "./helpers/custodyScenario";
 import { linkedFactory, UPG } from "./helpers/linked";
-import { planReconciliation, healthOf } from "../scripts/custody-reconcile";
+import { planReconciliation, verifyPlan, txFingerprint, healthOf } from "../scripts/custody-reconcile";
 
 /**
  * scripts/reconcile-custody.ts — النواة planReconciliation على عقد حقيقي (Harness يفرض الخلل).
@@ -74,8 +74,8 @@ describe("scripts/reconcile-custody — نواة المصالحة", () => {
     await s.h.connect(s.owner).pause();
     const b = await ethers.provider.getBlockNumber();
     const [p1, p2] = [await s.plan({ blockTag: b }), await s.plan({ blockTag: b })];
-    expect(p1.dataHash).to.be.a("string");
-    expect(p1.dataHash).to.equal(p2.dataHash);
+    expect(p1.fingerprint).to.be.a("string");
+    expect(p1.fingerprint).to.equal(p2.fingerprint);
   });
 
   it("verify: خروج مستخدم بعد اللقطة (cancelOffer مفتوح أثناء الإيقاف) ⇒ البصمة تتغيّر", async () => {
@@ -84,7 +84,7 @@ describe("scripts/reconcile-custody — نواة المصالحة", () => {
     const p1 = await s.plan();
     await s.h.connect(s.seller2).cancelOffer(2);              // خروج مسموح أثناء الإيقاف
     const p2 = await s.plan();
-    expect(p2.dataHash).to.not.equal(p1.dataHash);
+    expect(p2.fingerprint).to.not.equal(p1.fingerprint);
     expect(row(p2, s.wAddr).offer).to.equal(0n);
     // اللقطة القديمة تطلب 0.2 والرصيد صار 0 ⇒ I2 على السلسلة ترفضها كلها
     await expect(s.exec(p1.data!)).to.be.reverted;
@@ -98,10 +98,50 @@ describe("scripts/reconcile-custody — نواة المصالحة", () => {
     const p1 = await s.plan();
     await s.h.connect(s.seller2).cancelOffer(2);
     const p2 = await s.plan();
-    expect(p2.dataHash).to.not.equal(p1.dataHash);            // verify يرفض
+    expect(p2.fingerprint).to.not.equal(p1.fingerprint);            // verify يرفض
     await s.exec(p1.data!);                                   // لو تجاهلها الموقّع:
     expect(await s.h.offerCustody(s.wAddr)).to.equal(BTC(0.2)); // عدّاد مضخّم (الحقيقة 0)
     expect(healthOf(await s.plan()).drift.length).to.equal(1);  // check يكشف الانحراف بعدها
+  });
+
+  it("B6-REC-01: verify يرفض كتلة مثبّتة، وعلى أحدث كتلة يكشف خروجاً بعد اللقطة", async () => {
+    const s = await setup(); await fault(s);
+    await s.h.connect(s.owner).pause();
+    const B = await ethers.provider.getBlockNumber();
+    const p1 = await s.plan({ blockTag: B });
+    await s.h.connect(s.seller2).cancelOffer(2);                          // خروج بعد اللقطة
+    // السلوك القديم: إعادة اللقطة عند B تعطي البصمة نفسها رغم تغيّر الحالة — تأكيد مضلّل
+    expect((await s.plan({ blockTag: B })).fingerprint).to.equal(p1.fingerprint);
+    let refused = "";
+    try { await verifyPlan(ethers.provider, s.mAddr, p1.fingerprint!, { blockTag: B }); } catch (e: any) { refused = e.message; }
+    expect(refused).to.include("لا يقبل كتلة مثبّتة");
+    const v = await verifyPlan(ethers.provider, s.mAddr, p1.fingerprint!, { expectedOwner: s.owner.address });
+    expect(v.match).to.equal(false);
+    expect(v.block).to.be.greaterThan(B);
+    // بلا تغيير: verify على أحدث كتلة يطابق
+    const p2 = await s.plan();
+    expect((await verifyPlan(ethers.provider, s.mAddr, p2.fingerprint!)).match).to.equal(true);
+  });
+
+  it("B6-REC-02: البصمة تربط الشبكة والوجهة والقيمة، لا calldata وحدها", async () => {
+    const s = await setup(); await fault(s);
+    await s.h.connect(s.owner).pause();
+    const p = await s.plan();
+    const base = { chainId: p.chainId, to: s.mAddr, value: 0n, data: p.data! };
+    expect(p.fingerprint).to.equal(txFingerprint(base));
+    expect(p.chainId).to.equal(31337n);
+    const others = [
+      txFingerprint({ ...base, chainId: 8453n }),                        // نفس الأرقام على Base
+      txFingerprint({ ...base, to: s.stranger.address }),                // Proxy آخر
+      txFingerprint({ ...base, value: 1n }),                             // قيمة مرسلة
+    ];
+    for (const f of others) expect(f).to.not.equal(p.fingerprint);
+    expect(new Set(others).size).to.equal(3);
+    // verify يرفض بصمة بنفس calldata حرفياً لكن لشبكة أخرى أو وجهة أخرى
+    const [onBase, otherProxy] = others;
+    expect((await verifyPlan(ethers.provider, s.mAddr, onBase)).match).to.equal(false);
+    expect((await verifyPlan(ethers.provider, s.mAddr, otherProxy)).match).to.equal(false);
+    expect((await verifyPlan(ethers.provider, s.mAddr, p.fingerprint!)).match).to.equal(true);
   });
 
   it("عجز فعلي (سحب يتجاوز المحاسبة) ⇒ INSOLVENT ولا calldata — تحقيق لا مصالحة", async () => {

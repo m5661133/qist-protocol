@@ -42,7 +42,10 @@ export type Row = {
   surplus: bigint;                                   // الرصيد − المستحق (تبرعات/فائض)؛ سالب = عجز
 };
 
-export type Blocker = "NOT_PAUSED" | "OWNER_MISMATCH" | "INSOLVENT" | "SIMULATION_REVERTED";
+export type Blocker = "WRONG_CHAIN" | "NOT_PAUSED" | "OWNER_MISMATCH" | "INSOLVENT" | "SIMULATION_REVERTED";
+
+/** الشبكات المسموحة: Base للإنتاج، وhardhat (31337) للاختبار والنسخ المتفرّعة */
+export const ALLOWED_CHAINS = [8453n, 31337n];
 
 export type Plan = {
   chainId: bigint; block: number; proxy: string; owner: string;
@@ -51,8 +54,18 @@ export type Plan = {
   changes: number;          // عدد الرموز التي يتغيّر عدّادها
   blockers: { code: Blocker; detail: string }[];
   data: string | null;      // calldata reconcileCustody — فقط إن لم يوجد مانع
-  dataHash: string | null;  // keccak256(data) — يقارنه الموقّعون ووضع verify
+  value: bigint;            // دائماً 0
+  fingerprint: string | null; // B6-REC-02: بصمة المعاملة كاملة (chainId + proxy + value + data)
 };
+
+/**
+ * بصمة معاملة الـSafe: keccak256(abi.encode(chainId, to, value, data)).
+ * B6-REC-02: نفس الأرقام على شبكة أخرى أو Proxy آخر تعطي بصمة مختلفة — تربط التحقق بالمعاملة المقصودة.
+ */
+export function txFingerprint(t: { chainId: bigint; to: string; value: bigint; data: string }) {
+  return ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+    ["uint256", "address", "uint256", "bytes"], [t.chainId, t.to, t.value, t.data]));
+}
 
 const ETH = ethers.ZeroAddress;
 
@@ -106,6 +119,8 @@ export async function planReconciliation(
     if (!tokens.includes(t)) throw new Error(`⛔ رمز ${t} في عرض/مركز نشط وغير موجود في tokenList`);
 
   const blockers: Plan["blockers"] = [];
+  const chainId = (await provider.getNetwork()).chainId;
+  if (!ALLOWED_CHAINS.includes(chainId)) blockers.push({ code: "WRONG_CHAIN", detail: `chainId ${chainId} غير مسموح` });
   if (!paused) blockers.push({ code: "NOT_PAUSED", detail: "العقد غير موقوف — reconcileCustody تتطلب whenPaused، واللقطة لا تُعتمد قبل الإيقاف" });
   if (opts.expectedOwner && owner.toLowerCase() !== opts.expectedOwner.toLowerCase())
     blockers.push({ code: "OWNER_MISMATCH", detail: `المالك ${owner} ≠ المتوقع ${opts.expectedOwner}` });
@@ -127,9 +142,26 @@ export async function planReconciliation(
   if (blockers.length) data = null;
 
   return {
-    chainId: (await provider.getNetwork()).chainId, block, proxy, owner, paused, accountingFault: fault,
-    rows, changes, blockers, data, dataHash: data ? ethers.keccak256(data) : null,
+    chainId, block, proxy, owner, paused, accountingFault: fault,
+    rows, changes, blockers, data, value: 0n,
+    fingerprint: data ? txFingerprint({ chainId, to: proxy, value: 0n, data }) : null,
   };
+}
+
+/**
+ * B6-REC-01: التحقق قبل التنفيذ — على **أحدث كتلة دائماً**. أي كتلة مثبّتة تُرفض، لأن إعادة
+ * لقطة plan نفسها تعطي البصمة نفسها مهما تغيّرت الحالة بعدها.
+ * ⚠️ النجاح لا يقفل الحالة حتى التنفيذ (المخارج مفتوحة أثناء الإيقاف) — check بعد التنفيذ إلزامي.
+ */
+export async function verifyPlan(
+  provider: ethers.Provider, proxy: string, expected: string,
+  opts: { blockTag?: number; expectedOwner?: string } = {},
+) {
+  if (opts.blockTag !== undefined) throw new Error("⛔ verify لا يقبل كتلة مثبّتة — يتحقق من أحدث كتلة فقط");
+  const latest = await provider.getBlock("latest");
+  const plan = await planReconciliation(provider, proxy, { blockTag: latest!.number, expectedOwner: opts.expectedOwner });
+  const match = !!plan.fingerprint && plan.fingerprint === expected.toLowerCase();
+  return { match, plan, block: latest!.number, timestamp: latest!.timestamp };
 }
 
 /** وضع المراقبة: هل تطابق العدّادات الحالة وI2 سليمة؟ (لا يحتاج إيقافاً) */
