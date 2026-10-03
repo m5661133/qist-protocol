@@ -15,7 +15,7 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
 |---|---|
 | `scripts/build22-upgrade.ts` | نشر المكتبات الأربع + التنفيذ المربوط؛ مقارنة كود كلٍّ منها على السلسلة بالمُجمَّع؛ حدّ 24,576؛ توافق التخزين ضد Build 21 الفعلي؛ ترميز `upgradeToAndCall(impl, initializeV3(20k,15k,5k))` |
 | `scripts/prepare-upgrade-build22-safe.ts` | يطبع معاملة الـSafe (تجربة جافة على النسخة المحلية؛ على Base فقط بقرار المالك) |
-| `scripts/fork-upgrade-build22.ts` | المحاكاة الكاملة — 40 فحصاً |
+| `scripts/fork-upgrade-build22.ts` | المحاكاة الكاملة — 42 فحصاً |
 | `hardhat.fork.config.ts` | إعداد التفرّع (`FORK_BLOCK` اختياري) |
 
 ## معالجة مراجعة جبتي (3 أكتوبر)
@@ -48,7 +48,7 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
 السكربت الجديد يستدعي `forceImport` بمصنع `MurabahaV6Build21` بعد التحقق أن كوده التنفيذي = الحي.
 (الذيل CBOR metadata يختلف لأن العقد أُعيدت تسميته في `legacy/b21`؛ الكود التنفيذي مطابق حرفياً.)
 
-## النتيجة (بعد ملاحظات جبتي B6-UPG-01/02 — 40/40)
+## النتيجة (42/42 — القسم 9 يستخدم نواة scripts/reconcile-custody.ts)
 
 ```
 🔱 محاكاة ترقية Build 21 → Build 22 — نسخة Base عند الكتلة 52091342
@@ -109,11 +109,13 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
   ✅ الرجوع: التنفيذ = Build 21
   ✅ الرجوع: كل البيانات كما هي
   ✅ العودة: Build 22 · تهيئة 3 · الحدود محفوظة · موقوف
-  ✅ قبل المصالحة: عدّاد عروض ETH متأخر 0.015 ≠ الفعلي 0.035
+  ✅ قبل المصالحة: check يكشف الانحراف — عدّاد عروض ETH 0.015 ≠ الفعلي 0.035
+  ✅ plan: لا موانع، والمحاكاة من الـSafe نجحت
   ✅ reconcileCustody ترفض لقطة ناقصة
-  ✅ بعد المصالحة: العدّادات = الحالة لكل رمز، وaccountingFault = false
-  ✅ بعد الفتح: إيداع جديد يمر والعدّاد يتابعه
-═══ 40/40 ═══
+  ✅ verify قبل التنفيذ: البصمة لم تتغيّر
+  ✅ بعد المصالحة: check نظيف لكل رمز وaccountingFault = false
+  ✅ بعد الفتح: إيداع جديد يمر والعدّاد يتابعه (check نظيف)
+═══ 42/42 ═══
 ✅ المحاكاة نجحت كاملة
 ```
 

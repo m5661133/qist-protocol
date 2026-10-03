@@ -45,20 +45,6 @@ export async function preflight() {
   return { chainId, impl, hash, ver, owner };
 }
 
-/**
- * العهدة المتوقعة من الحالة نفسها (نفس قاعدة CustodyLib.migrate): العروض النشطة ⇒ الدلو A،
- * المراكز النشطة ⇒ الدلو B. يُستخدم في المحاكاة وفي مدخلات reconcileCustody.
- */
-export async function computeCustody(c: any) {
-  const tokens: string[] = [...(await c.getSupportedTokens())]; // نسخة قابلة للتمرير (Result للقراءة فقط)
-  const offer: Record<string, bigint> = {}, col: Record<string, bigint> = {};
-  for (const t of tokens) { offer[t] = 0n; col[t] = 0n; }
-  const nOff = Number(await c.nextOfferId()), nPos = Number(await c.nextPositionId());
-  for (let i = 1; i < nOff; i++) { const o = await c.getOffer(i); if (Number(o.state) === 0) offer[o.saleToken] += o.saleAmount; }
-  for (let i = 1; i < nPos; i++) { const p = await c.getPosition(i); if (Number(p.state) === 0) col[p.collateralToken] += p.collateralAmount; }
-  return { tokens, offerValues: tokens.map((t) => offer[t]), collateralValues: tokens.map((t) => col[t]) };
-}
-
 /** artifact مربوط: يستبدل placeholders المكتبات بعناوينها */
 function linkBytecode(art: any, libs: Record<string, string>) {
   let code = strip(art.deployedBytecode);

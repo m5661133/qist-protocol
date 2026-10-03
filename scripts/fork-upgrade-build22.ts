@@ -15,7 +15,8 @@
  *   8. الرجوع إلى Build 21 ثم العودة إلى Build 22 دون فقد بيانات.
  */
 import { ethers, network } from "hardhat";
-import { PROXY, BUILD21_IMPL, BUILD21_CODEHASH, CAPS, LIBS, IMPL_SLOT, preflight, computeCustody, deployBuild22, validateAgainstBuild21, upgradeCalldata } from "./build22-upgrade";
+import { PROXY, BUILD21_IMPL, BUILD21_CODEHASH, CAPS, LIBS, IMPL_SLOT, preflight, deployBuild22, validateAgainstBuild21, upgradeCalldata } from "./build22-upgrade";
+import { planReconciliation, healthOf } from "./custody-reconcile";
 
 const INIT_SLOT = "0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00";
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -220,25 +221,24 @@ async function main() {
   await (await safe.sendTransaction({ to: PROXY, data: up(implAddr) })).wait();
   ok("العودة: Build 22 · تهيئة 3 · الحدود محفوظة · موقوف",
     (await implOf()) === implAddr.toLowerCase() && (await initVersion()) === 3n && (await c.globalCapUSDC()) === CAPS.global && (await c.paused()));
-  const want = await computeCustody(c);
-  const ethIdx = want.tokens.indexOf(ETH);
-  const staleETH: bigint = await c.offerCustody(ETH);
-  ok(`قبل المصالحة: عدّاد عروض ETH متأخر ${ethers.formatEther(staleETH)} ≠ الفعلي ${ethers.formatEther(want.offerValues[ethIdx])}`,
-    want.offerValues[ethIdx] - staleETH === during);
-  // المصالحة ترفض لقطة ناقصة، وتُقبل اللقطة الكاملة المحسوبة من الحالة
+  // scripts/reconcile-custody.ts (نواته) — نفس المسار الذي يوقّعه الـSafe فعلياً
+  const before9 = await planReconciliation(ethers.provider, PROXY, { expectedOwner: SAFE });
+  const r = before9.rows.find((x) => x.token === ETH)!;
+  ok(`قبل المصالحة: check يكشف الانحراف — عدّاد عروض ETH ${ethers.formatEther(r.counterOffer)} ≠ الفعلي ${ethers.formatEther(r.offer)}`,
+    !healthOf(before9).ok && r.offer - r.counterOffer === during);
+  ok("plan: لا موانع، والمحاكاة من الـSafe نجحت", before9.blockers.length === 0 && !!before9.data);
   let partial = false;
-  try { await (c.connect(safe) as any).reconcileCustody.staticCall([ETH], [want.offerValues[ethIdx]], [0n]); } catch { partial = true; }
+  try { await (c.connect(safe) as any).reconcileCustody.staticCall([ETH], [r.offer], [0n]); } catch { partial = true; }
   ok("reconcileCustody ترفض لقطة ناقصة", partial);
-  await (await (c.connect(safe) as any).reconcileCustody(want.tokens, want.offerValues, want.collateralValues)).wait();
-  let match = true;
-  for (const [i, t] of want.tokens.entries())
-    match &&= (await c.offerCustody(t)) === want.offerValues[i] && (await c.collateralCustody(t)) === want.collateralValues[i];
-  ok("بعد المصالحة: العدّادات = الحالة لكل رمز، وaccountingFault = false", match && !(await c.accountingFault()));
+  const verify = await planReconciliation(ethers.provider, PROXY, { expectedOwner: SAFE });
+  ok("verify قبل التنفيذ: البصمة لم تتغيّر", verify.dataHash === before9.dataHash);
+  await (await safe.sendTransaction({ to: PROXY, data: before9.data! })).wait();
+  const after9 = await planReconciliation(ethers.provider, PROXY, { expectedOwner: SAFE });
+  ok("بعد المصالحة: check نظيف لكل رمز وaccountingFault = false", healthOf(after9).ok);
   await (await (c.connect(safe) as any).unpause()).wait();
   let resumed = true; try { await (await offer(ethers.parseEther("0.01"))).wait(); } catch { resumed = false; }
-  const after2 = await computeCustody(c);
-  ok("بعد الفتح: إيداع جديد يمر والعدّاد يتابعه",
-    resumed && (await c.offerCustody(ETH)) === after2.offerValues[after2.tokens.indexOf(ETH)]);
+  ok("بعد الفتح: إيداع جديد يمر والعدّاد يتابعه (check نظيف)",
+    resumed && healthOf(await planReconciliation(ethers.provider, PROXY)).ok);
 
   const failed = checks.filter(([, v]) => !v);
   console.log(`\n═══ ${checks.length - failed.length}/${checks.length} ═══`);
