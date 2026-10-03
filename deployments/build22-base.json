@@ -1,0 +1,33 @@
+{
+  "network": "base",
+  "chainId": 8453,
+  "date": "2026-10-03",
+  "proxy": "0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5",
+  "owner": "0x64D738021BAe4cb9a7fd82529C2F94f61d404064",
+  "source": { "tag": "build22-deployed-src", "branch": "build22-b6" },
+  "build22": {
+    "implementation": "0x962DD7Ad2AaA80eFF2Ea303Ae7E901A0A39C5DE0",
+    "libraries": {
+      "CustodyLib": "0xF52113C7094f59e09f01aff2425Aaadc270F5244",
+      "BuyLogic": "0x2b307BdEBe421cb529c27736EC74143a7C1e9DDc",
+      "OfferLogic": "0x550b8Cf91D9338d578D426BACB4e9653553037A4",
+      "AutomationLogic": "0x9b459e5f6b1A5195f5Cc1f7e5B8C277D8Dc99AA3"
+    },
+    "basescanVerified": true,
+    "caps": { "global": "20000000000", "commitment": "15000000000", "offer": "5000000000" },
+    "safeTx": {
+      "to": "0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5",
+      "value": "0",
+      "data": "0x4f1ef286000000000000000000000000962dd7ad2aaa80eff2ea303ae7e901a0a39c5de000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000064b2edc48800000000000000000000000000000000000000000000000000000004a817c800000000000000000000000000000000000000000000000000000000037e11d600000000000000000000000000000000000000000000000000000000012a05f20000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "rollback": {
+    "build21": {
+      "implementation": "0x0c0114d6a15bba02a7ef89894462d52ee5f283a7",
+      "codehash": "0x7d0dd0aa386fc98950e36933897b355a61038b9ab133c9434e42df775bef6f3b",
+      "tag": "build21-live",
+      "safeTx": { "to": "0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5", "value": "0", "data": "upgradeToAndCall(0x0c0114d6a15bba02a7ef89894462d52ee5f283a7, 0x)" },
+      "note": "docs/ROLLBACK.md — العودة إلى Build 22 بعدها = pause + upgradeToAndCall(build22, 0x) + docs/RECONCILE.md + ready + unpause"
+    }
+  }
+}

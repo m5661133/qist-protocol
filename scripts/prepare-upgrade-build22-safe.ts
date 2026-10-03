@@ -36,7 +36,7 @@ async function main() {
   console.log("  Data  :", data);
   console.log(`  = upgradeToAndCall(${implAddr}, initializeV3(${CAPS.global}, ${CAPS.commitment}, ${CAPS.offer}))`);
   console.log("──────────────────────────────────────────────────────────────────");
-  console.log("قبل التوقيع: محاكاة Tenderly من واجهة الـSafe يجب أن تنجح، وscripts/fork-upgrade-build22.ts كاملة (40/40) على كتلة حديثة.");
+  console.log("قبل التوقيع: محاكاة Tenderly من واجهة الـSafe يجب أن تنجح، وscripts/simulate-safe-upgrade.ts (المعاملة النهائية) كاملة على كتلة حديثة.");
   if (!dry) {
     console.log("\nتوثيق Basescan (المكتبات أولاً):");
     for (const L of LIBS) console.log(`  npx hardhat verify --network base ${libs[L]}`);

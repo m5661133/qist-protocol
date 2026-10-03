@@ -57,7 +57,12 @@ function linkBytecode(art: any, libs: Record<string, string>) {
 
 /** يقارن كوداً منشوراً بالـartifact بعد تصفير عنوان العقد نفسه (UUPS __self / حماية استدعاء المكتبة) */
 async function assertCodeMatches(label: string, addr: string, expected: string) {
-  const onchain = strip(await ethers.provider.getCode(addr));
+  // RPC العام قد يعيد كوداً فارغاً لحظة بعد النشر (عُقد متعددة خلفه) — ننتظر ظهوره قبل المقارنة
+  let onchain = strip(await ethers.provider.getCode(addr));
+  for (let i = 0; i < 20 && onchain.length === 0; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    onchain = strip(await ethers.provider.getCode(addr));
+  }
   const zeroed = onchain.split(strip(addr)).join("0".repeat(40));
   if (zeroed !== expected) throw new Error(`⛔ ${label}: الكود المنشور لا يطابق المُجمَّع محلياً`);
   return onchain.length / 2;
@@ -67,9 +72,15 @@ export async function deployBuild22(signer?: any) {
   const libs: Record<string, string> = {};
   const sizes: Record<string, number> = {};
   for (const L of LIBS) {
-    const c = await (await ethers.getContractFactory(L, signer)).deploy();
-    await c.waitForDeployment();
-    libs[L] = await c.getAddress();
+    // LIB_<اسم>=<عنوان>: إعادة استخدام مكتبة منشورة سابقاً — تُقبل فقط إن طابق كودها المُجمَّع (أدناه)
+    const reuse = process.env[`LIB_${L}`];
+    if (reuse) {
+      libs[L] = ethers.getAddress(reuse);
+    } else {
+      const c = await (await ethers.getContractFactory(L, signer)).deploy();
+      await c.waitForDeployment();
+      libs[L] = await c.getAddress();
+    }
     const art = await hre.artifacts.readArtifact(L);
     sizes[L] = await assertCodeMatches(L, libs[L], strip(art.deployedBytecode));
   }
@@ -81,6 +92,14 @@ export async function deployBuild22(signer?: any) {
   sizes.MurabahaV6 = await assertCodeMatches("MurabahaV6", implAddr, linkBytecode(art, libs));
   for (const [k, v] of Object.entries(sizes)) if (v > EIP170) throw new Error(`⛔ ${k} ${v} > ${EIP170}`);
   return { libs, implAddr, sizes, Factory };
+}
+
+/** تحقق من نشر سابق: كود المكتبات والتنفيذ المربوط على السلسلة = المُجمَّع محلياً */
+export async function verifyDeployed(libs: Record<string, string>, implAddr: string) {
+  const sizes: Record<string, number> = {};
+  for (const L of LIBS) sizes[L] = await assertCodeMatches(L, libs[L], strip((await hre.artifacts.readArtifact(L)).deployedBytecode));
+  sizes.MurabahaV6 = await assertCodeMatches("MurabahaV6", implAddr, linkBytecode(await hre.artifacts.readArtifact("MurabahaV6"), libs));
+  return sizes;
 }
 
 /**
