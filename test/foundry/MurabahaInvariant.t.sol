@@ -4,6 +4,7 @@ pragma solidity ^0.8.22;
 import {Test, console2} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MurabahaV6} from "../../contracts/MurabahaV6.sol";
+import {Offer, Position, OfferState, PositionState} from "../../contracts/libraries/MurabahaTypes.sol";
 import {MockUSDC, MockWBTC, MockFeed} from "../../contracts/Mocks.sol";
 import {Handler} from "./Handler.sol";
 
@@ -25,7 +26,7 @@ contract MurabahaInvariant is Test {
     address constant BROKER   = address(0xB0B);
     address constant PROTOCOL = address(0xC0DE);
 
-    function setUp() public {
+    function setUp() public virtual {
         usdc    = new MockUSDC();
         wbtc    = new MockWBTC();
         ethFeed = new MockFeed(2_000e8, 8);
@@ -91,6 +92,30 @@ contract MurabahaInvariant is Test {
         assertFalse(handler.brokenSettlement(), "I6: liquidation broke settlement invariant");
     }
 
+    /// I7 — Build 22: عدّادات العهدة = مجموع العروض النشطة والمراكز النشطة (الدلوان A وB)، ولا خلل محاسبي.
+    function invariant_I7_custodyMatchesState() public view {
+        uint256 offersSum;
+        uint256 no = m.nextOfferId();
+        for (uint256 i = 1; i < no; i++) {
+            Offer memory o = m.getOffer(i);
+            if (o.state == OfferState.ACTIVE) offersSum += o.saleAmount;
+        }
+        uint256 colSum;
+        uint256 np = m.nextPositionId();
+        for (uint256 i = 1; i < np; i++) {
+            Position memory p = m.getPosition(i);
+            if (p.state == PositionState.ACTIVE) colSum += p.collateralAmount;
+        }
+        assertEq(m.offerCustody(address(wbtc)), offersSum, "I7: offerCustody != active offers");
+        assertEq(m.collateralCustody(address(wbtc)), colSum, "I7: collateralCustody != active collateral");
+        assertFalse(m.accountingFault(), "I7: accountingFault raised");
+    }
+
+    /// I8 — Build 22: لا إيداع ناجح يترك العهدة فوق الحد.
+    function invariant_I8_capNeverBreachedByDeposit() public view {
+        assertEq(handler.capBreaches(), 0, "I8: deposit succeeded above cap");
+    }
+
     /// @dev ملخّص تغطية الحملة — يظهر مع -vvv؛ يضمن أن الأفعال نُفّذت فعلاً.
     function invariant_callSummary() public view {
         console2.log("createOffer:", handler.callsCreate());
@@ -99,6 +124,8 @@ contract MurabahaInvariant is Test {
         console2.log("earlyRepay: ", handler.callsEarly());
         console2.log("liquidate:  ", handler.callsLiquidate());
         console2.log("settleCheck:", handler.settlementChecks());
+        console2.log("capChecks:  ", handler.capChecks());
+        console2.log("capReject:  ", handler.capRejections());
         assertTrue(true);
     }
 
@@ -166,9 +193,10 @@ contract MurabahaInvariant is Test {
         (bool can,) = m.isLiquidatable(pid);
         assertTrue(can, "should be liquidatable (overdue)");
         m.liquidatePositionPublic(pid);
-        (,,,,,, uint256 colAfter,,,,,, MurabahaV6.PositionState st,) = m.positions(pid);
+        Position memory po_ = m.getPosition(pid);
+        (uint256 colAfter, PositionState st) = (po_.collateralAmount, po_.state);
         assertEq(colAfter, 0);
-        assertTrue(st == MurabahaV6.PositionState.LIQUIDATED);
+        assertTrue(st == PositionState.LIQUIDATED);
     }
 
     // ═══════════ مساعدات قراءة الـ getters (بنية الـ struct ثابتة) ═══════════
@@ -176,18 +204,31 @@ contract MurabahaInvariant is Test {
     // Offer: [0]seller [1]saleTok [2]colTok [3]payTok [4]totalAmount [5]saleAmount
     //        [6]minPurchase [7]profitBps [8]minInst [9]maxInst [10]interval [11]ratio [12]state [13]autoLiq
     function _offerSaleAmount(uint256 id) internal view returns (uint256 s) {
-        (,,,,, s,,,,,,,,) = m.offers(id);
+        s = m.getOffer(id).saleAmount;
     }
     function _offerAmounts(uint256 id) internal view returns (uint256 total, uint256 remaining) {
-        (,,,, total, remaining,,,,,,,,) = m.offers(id);
+        Offer memory of_ = m.getOffer(id);
+        (total, remaining) = (of_.totalAmount, of_.saleAmount);
     }
 
     // Position: [0]offerId [1]buyer [2]saleTok [3]colTok [4]payTok [5]saleAmount [6]collateralAmount
     //           [7]totalPayable [8]totalInst [9]paidInst [10]interval [11]nextDue [12]state [13]autoPay
     function _posCollateral(uint256 id) internal view returns (uint256 c) {
-        (,,,,,, c,,,,,,,) = m.positions(id);
+        c = m.getPosition(id).collateralAmount;
     }
     function _posInstallments(uint256 id) internal view returns (uint8 total, uint8 paid) {
-        (,,,,,,, , total, paid,,,,) = m.positions(id);
+        Position memory po_ = m.getPosition(id);
+        (total, paid) = (po_.totalInstallments, po_.paidInstallments);
     }
+}
+
+/// @title نفس الحملة والسقف مفعّل — حدود بمقياس عالم الاختبار (WBTC $60k، عروض حتى 5 WBTC)
+/// @dev النسب نفسها المعتمدة (20k / 15k / 5k) مضروبة في 100: جزء من الإيداعات يصطدم بالحد فعلاً
+///      (capChecks / capRejections في invariant_callSummary -vv؛ الدليل على أن I8 يكشف الخرق = اختبار الطفرات في التقرير).
+contract MurabahaInvariantCapped is MurabahaInvariant {
+    function setUp() public override {
+        super.setUp();
+        m.setCustodyCaps(2_000_000e6, 1_500_000e6, 500_000e6);
+    }
+
 }

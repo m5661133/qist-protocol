@@ -24,7 +24,7 @@ describe("مولّد سيناريوهات العهدة — تغطية كل ال�
     // مراجعة جبتي (v2): التغطية بالأسماء لا تكفي — نثبت بلوغ الحالات النهائية فعلاً
     let completedByInstallments = false;
     for (let i = 1n; i < (await s.m.nextPositionId()); i++) {
-      const p = await s.m.positions(i);
+      const p = await s.m.getPosition(i);
       if (p.state === 1n && p.paidInstallments === p.totalInstallments && p.collateralAmount === 0n)
         completedByInstallments = true; // اكتمل بالقسط الأخير (earlyRepayCash يضبطها كذلك — لذا نتحقق من الحدث أدناه)
     }

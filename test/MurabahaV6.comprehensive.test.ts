@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { linkedFactory, UPG, withLibErrors } from "./helpers/linked";
 
 // ── Unit helpers ──────────────────────────────────────────────────────────
 const U   = (n: number) => BigInt(Math.round(n * 1e6));   // USDC 6 dec
@@ -46,13 +47,13 @@ async function deploy() {
   const wbtc    = await (await ethers.getContractFactory("MockWBTC")).deploy();
   const ethFeed = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
   const btcFeed = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
-  const Murabaha = await ethers.getContractFactory("MurabahaV6");
+  const Murabaha = await linkedFactory("MurabahaV6");
   const m = await upgrades.deployProxy(Murabaha, [
     await usdc.getAddress(), await wbtc.getAddress(),
     await ethFeed.getAddress(), await btcFeed.getAddress(),
     owner.address, // brokerTreasury
     owner.address  // protocolTreasury
-  ], { kind: "uups", unsafeAllow: ["constructor"] });
+  ], { kind: "uups", ...UPG });
   await m.setKeeper(keeper.address);
   await wbtc.mint(seller.address, BTC(100));
   for (const b of [buyer, buyer2]) {
@@ -83,7 +84,7 @@ async function openPosition(ctx: Ctx, opts: {
 describe("A — Constructor", () => {
   it("يرفض zero-address لكل معامل (عبر initialize)", async () => {
     const { usdc, wbtc, ethFeed, btcFeed, owner } = await deploy();
-    const F = await ethers.getContractFactory("MurabahaV6");
+    const F = await linkedFactory("MurabahaV6");
     const [u, w, ef, bf, o] = [
       await usdc.getAddress(), await wbtc.getAddress(),
       await ethFeed.getAddress(), await btcFeed.getAddress(), owner.address,
@@ -95,7 +96,7 @@ describe("A — Constructor", () => {
       [u, w, ef, z, o, o],  [u, w, ef, bf, z, o], [u, w, ef, bf, o, z],
     ] as [string, string, string, string, string, string][]) {
       await expect(
-        upgrades.deployProxy(F, args, { kind: "uups", unsafeAllow: ["constructor"] })
+        upgrades.deployProxy(F, args, { kind: "uups", ...UPG })
       ).to.be.reverted;
     }
   });
@@ -336,7 +337,7 @@ describe("D — الشراء وتحقق الأرقام", () => {
     await wbtc.connect(buyer).approve(mAddr, BTC(1));
     // BTC(1) @ $60k = $60k < M.reqCollateral ($78,408)
     await expect(m.connect(buyer).buy(1, BTC(1), BTC(1), Q_BTC, 12, false))
-      .to.be.revertedWithCustomError(m, "InsufficientCollateral");
+      .to.be.revertedWithCustomError(await withLibErrors(m), "InsufficientCollateral");
   });
 
   it("يرفض انزلاق > 1%", async () => {
@@ -349,7 +350,7 @@ describe("D — الشراء وتحقق الأرقام", () => {
     await wbtc.connect(buyer).approve(mAddr, BTC(2));
     const stale = 59000n * 10n ** 6n; // diff = $1,000 > 1% of $60,000
     await expect(m.connect(buyer).buy(1, BTC(1), BTC(2), stale, 12, false))
-      .to.be.revertedWithCustomError(m, "SlippageExceeded");
+      .to.be.revertedWithCustomError(await withLibErrors(m), "SlippageExceeded");
   });
 
   it("يقبل انزلاق 0.5% (ضمن الحد)", async () => {
@@ -1285,7 +1286,7 @@ describe("P — شراء جزئي ومرونة الأقساط", () => {
 
     await expect(
       m.connect(buyer).buy(1, BTC(0.2), BTC(0.3), Q_BTC, 15, false)
-    ).to.be.revertedWithCustomError(m, "InvalidInstallments");
+    ).to.be.revertedWithCustomError(await withLibErrors(m), "InvalidInstallments");
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1338,7 +1339,7 @@ describe("P — شراء جزئي ومرونة الأقساط", () => {
 
     await expect(
       m.connect(buyer).buy(1, BTC(0.05), BTC(0.1), Q_BTC, 12, false)
-    ).to.be.revertedWithCustomError(m, "BelowMinPurchase");
+    ).to.be.revertedWithCustomError(await withLibErrors(m), "BelowMinPurchase");
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1398,7 +1399,7 @@ describe("P — شراء جزئي ومرونة الأقساط", () => {
     // محاولة بـ 1.5 BTC (يكفي عند 120% لكن لا يكفي عند 150%)
     await expect(
       m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)
-    ).to.be.revertedWithCustomError(m, "InsufficientCollateral");
+    ).to.be.revertedWithCustomError(await withLibErrors(m), "InsufficientCollateral");
 
     // بـ 1.7 BTC يكفي
     await expect(
@@ -1427,7 +1428,7 @@ describe("Q — FB-31: حماية ضد Self-Buy", () => {
     await usdc.connect(seller).approve(mAddr, U(2_000_000));
     await expect(
       m.connect(seller).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)
-    ).to.be.revertedWithCustomError(m, "SelfBuyNotAllowed");
+    ).to.be.revertedWithCustomError(await withLibErrors(m), "SelfBuyNotAllowed");
   });
 
   it("Q-02: مشتري آخر ينجح في الشراء (المسار العادي)", async () => {
@@ -1552,9 +1553,9 @@ describe("S — إصلاحات التحصين", () => {
     await m.connect(seller).createOffer(wbtcAddr, wbtcAddr, usdcAddr, BTC(1), 1, 1, 12, INTERVAL, 0, 12000, false);
     await wbtc.connect(buyer).approve(mAddr, BTC(2));
     await expect(m.connect(buyer).buy(1, BTC(1), BTC(2), Q_BTC, 1, false))
-      .to.be.revertedWithCustomError(m, "EffectiveProfitTooLow");
+      .to.be.revertedWithCustomError(await withLibErrors(m), "EffectiveProfitTooLow");
     await expect(m.estimatePurchase(1, BTC(1), 1))
-      .to.be.revertedWithCustomError(m, "EffectiveProfitTooLow");
+      .to.be.revertedWithCustomError(await withLibErrors(m), "EffectiveProfitTooLow");
   });
 
   it("addCollateral يرفض عند تعطيل توكن الضمان", async () => {
@@ -1671,7 +1672,7 @@ describe("S — إصلاحات التحصين", () => {
     expect(needed).to.equal(true);
     expect(data).to.equal(enc(2)); // لا #1
     await m.connect(keeper).performUpkeep(data);
-    expect((await m.positions(2)).paidInstallments).to.equal(1); // قسط ETH دُفع فعلاً
+    expect((await m.getPosition(2)).paidInstallments).to.equal(1); // قسط ETH دُفع فعلاً
 
     // عودة المغذّي ⇒ #1 يُقترَح للتصفية من جديد وتنجح
     await btcFeed.setAnswer(BTC_FEED);
@@ -1688,7 +1689,7 @@ describe("S — إصلاحات التحصين", () => {
     const { m, usdc, seller, buyer } = ctx;
     const N = 13;
     await openPosition(ctx, { inst: N });
-    const T: bigint = (await m.positions(1)).totalPayable;
+    const T: bigint = (await m.getPosition(1)).totalPayable;
     expect(T % BigInt(N)).to.be.greaterThan(1n); // وإلا لا يظهر الفرق
     const before = await usdc.balanceOf(seller.address);
     for (let k = 0; k < N; k++) {
@@ -1703,7 +1704,7 @@ describe("S — إصلاحات التحصين", () => {
     const ctx = await deploy();
     const { m, usdc, seller, buyer } = ctx;
     await openPosition(ctx, { inst: 13 });
-    const T: bigint = (await m.positions(1)).totalPayable;
+    const T: bigint = (await m.getPosition(1)).totalPayable;
     const before = await usdc.balanceOf(seller.address);
     for (let k = 0; k < 5; k++) await m.connect(buyer).payInstallment(1);
     await m.connect(buyer).earlyRepayCash(1);
@@ -1977,7 +1978,7 @@ describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحص
     await wbtc.connect(buyer).approve(mAddr, BTC(50));
     await usdc.connect(buyer).approve(mAddr, U(2_000_000));
     await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false))
-      .to.be.revertedWithCustomError(m, "PositionExceedsCap");
+      .to.be.revertedWithCustomError(await withLibErrors(m), "PositionExceedsCap");
   });
 
   it("Build 20: سقف عدد المراكز النشطة يُرفض عند بلوغه", async () => {
@@ -1993,7 +1994,7 @@ describe("T — Build 18: M-01 (تخطي auto-pay غير القابل للتحص
     await usdc.connect(buyer).approve(mAddr, U(2_000_000));
     await m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false); // #1 ينجح
     await expect(m.connect(buyer).buy(1, BTC(1), BTC(1.5), Q_BTC, 12, false)) // #2 يتجاوز السقف
-      .to.be.revertedWithCustomError(m, "ActivePositionsCapReached");
+      .to.be.revertedWithCustomError(await withLibErrors(m), "ActivePositionsCapReached");
   });
 
   it("Build 20: رفع السقف يعيد السماح (إطلاق محروس ثم توسّع)", async () => {

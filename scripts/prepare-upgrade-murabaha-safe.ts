@@ -1,6 +1,10 @@
 import hre, { ethers, upgrades } from "hardhat";
 
 /**
+ * ⚠️ متقاعد منذ Build 22 — استخدم scripts/prepare-upgrade-build22-safe.ts.
+ *    forceImport أدناه بمصنع النسخة الجديدة يسجّل تخطيطها كأنه المنشور، فيقارن validateUpgrade
+ *    النسخة بنفسها ولا يكشف شيئاً (docs/size-refactor-lab/UPGRADE-SIM.md). ولا يربط المكتبات.
+ *
  * تجهيز ترقية MurabahaV6 (Build 21) على Base — للـProxy المملوك لـ Safe 2-of-3.
  *
  *   npx hardhat run scripts/prepare-upgrade-murabaha-safe.ts --network base

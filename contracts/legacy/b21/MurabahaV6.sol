@@ -14,12 +14,6 @@ import {Errors} from "./libraries/Errors.sol";
 import {PriceLib} from "./libraries/PriceLib.sol";
 import {MurabahaMath} from "./libraries/MurabahaMath.sol";
 import {TransferLib} from "./libraries/TransferLib.sol";
-import {CustodyLib} from "./libraries/CustodyLib.sol";
-import {BuyLogic} from "./libraries/BuyLogic.sol";
-import {OfferLogic} from "./libraries/OfferLogic.sol";
-import {AutomationLogic} from "./libraries/AutomationLogic.sol";
-import {PricingLib} from "./libraries/PricingLib.sol";
-import {TokenConfig, OfferState, PositionState, Offer, Position} from "./libraries/MurabahaTypes.sol";
 
 /**
  * @title MurabahaV6 — مرابحة إسلامية بضمان كريبتو متعدد التوكنات
@@ -34,7 +28,7 @@ import {TokenConfig, OfferState, PositionState, Offer, Position} from "./librari
  *
  * [D-001..D-018 من النسخة السابقة محفوظة]
  */
-contract MurabahaV6 is
+contract MurabahaV6Build21 is
     Initializable,
     ReentrancyGuard,
     OwnableUpgradeable,
@@ -48,39 +42,91 @@ contract MurabahaV6 is
     // ═══════════ ثوابت ═══════════
 
     uint256 internal constant BPS = 10000;
-    uint16 public constant MIN_COLLATERAL_RATIO_BPS = OfferLogic.MIN_COLLATERAL_RATIO_BPS; // 110% — أقل نسبة ضمان يقبلها العقد
-    uint16 public constant MAX_COLLATERAL_RATIO_BPS = OfferLogic.MAX_COLLATERAL_RATIO_BPS; // 200% — أعلى نسبة ضمان مسموحة
+    uint16 public constant MIN_COLLATERAL_RATIO_BPS  = 11000; // 110% — أقل نسبة ضمان يقبلها العقد
+    uint16 public constant MAX_COLLATERAL_RATIO_BPS  = 20000; // 200% — أعلى نسبة ضمان مسموحة
     uint16 public constant LIQUIDATION_THRESHOLD_BPS = 10500; // 105%
-    uint16 internal constant MAX_PROTOCOL_FEE_BPS      = 300;
-    uint16 internal constant MAX_BROKERAGE_FEE_BPS     = 100;
-    uint16 internal constant MAX_PROFIT_BPS = OfferLogic.MAX_PROFIT_BPS; // 300% — السوق عرض وطلب؛ الحد لتفادي خطأ بشري فقط
+    uint16 public constant MAX_PROTOCOL_FEE_BPS      = 300;
+    uint16 public constant MAX_BROKERAGE_FEE_BPS     = 100;
+    uint16 public constant MAX_PROFIT_BPS            = 30000; // 300% — السوق عرض وطلب؛ الحد لتفادي خطأ بشري فقط
     uint16 public constant SLIPPAGE_TOLERANCE_BPS    = 100;   // 1%
-    uint32 internal constant INTERVAL_MINUTE = 60;
-    uint32 internal constant INTERVAL_DAY    = 1 days;
-    uint32 internal constant INTERVAL_MONTH  = 30 days;
-    uint32 internal constant MIN_PAYMENT_INTERVAL = OfferLogic.MIN_PAYMENT_INTERVAL;
-    uint32 internal constant MAX_PAYMENT_INTERVAL = OfferLogic.MAX_PAYMENT_INTERVAL;
+    uint32 public constant INTERVAL_MINUTE = 60;
+    uint32 public constant INTERVAL_DAY    = 1 days;
+    uint32 public constant INTERVAL_MONTH  = 30 days;
+    uint32 public constant MIN_PAYMENT_INTERVAL = 60;
+    uint32 public constant MAX_PAYMENT_INTERVAL = 365 days;
     uint256 public constant GRACE_PERIOD = 3 days; // 259200s — مهلة الإنتاج (رفق بالمدين قبل التصفية)
 
     // ═══════════ FB-60: رسوم الأتمتة الاختيارية ═══════════
-    uint16 internal constant AUTO_PAY_FEE_BPS        = AutomationLogic.AUTO_PAY_FEE_BPS;  // 0.3% إضافية على كل قسط تلقائي
-    uint16 internal constant AUTO_LIQUIDATE_FEE_BPS  = 50;  // 0.5% من حصة البائع عند التصفية التلقائية
+    uint16 public constant AUTO_PAY_FEE_BPS        = 30;  // 0.3% إضافية على كل قسط تلقائي
+    uint16 public constant AUTO_LIQUIDATE_FEE_BPS  = 50;  // 0.5% من حصة البائع عند التصفية التلقائية
 
     // ═══════════ D-019: إعدادات التوكن ═══════════
-    // Build 22: TokenConfig/Offer/Position/الحالات نُقلت كما هي إلى libraries/MurabahaTypes.sol
+
+    /**
+     * @notice إعدادات توكن مدعوم
+     * @param chainlinkFeed  مغذّي Chainlink للسعر بالـ USD (address(0) للستابل — سعره 1:1)
+     * @param decimals       منازل الكسر (ETH=18، WBTC=8، USDC/USDT=6)
+     * @param isStablecoin   true → للدفع فقط | false → للضمان/البيع فقط
+     * @param active         هل هو مفعّل حالياً
+     */
+    struct TokenConfig {
+        address chainlinkFeed;
+        uint8   decimals;
+        bool    isStablecoin;
+        bool    active;
+    }
 
     /// @notice address(0) = ETH
     mapping(address => TokenConfig) public tokenConfigs;
     /// @notice قائمة كل التوكنات للاستعراض
-    address[] internal tokenList;
+    address[] public tokenList;
+
+    // ═══════════ الهياكل ═══════════
+
+    enum OfferState    { ACTIVE, CLOSED }
+    enum PositionState { ACTIVE, COMPLETED, LIQUIDATED }
+
+    struct Offer {
+        address seller;
+        address saleToken;        // أصل البيع — address(0)=ETH
+        address collateralToken;  // أصل الضمان — address(0)=ETH
+        address paymentToken;     // الستابل كوين للدفع (USDC / USDT / ...)
+        uint256 totalAmount;
+        uint256 saleAmount;
+        uint256 minPurchaseAmount;
+        uint16  profitBps;
+        uint8   minInstallments;
+        uint8   maxInstallments;
+        uint32  paymentInterval;
+        uint16  collateralRatioBps;
+        OfferState state;
+        bool    autoLiquidateEnabled; // FB-60: البائع اختار التصفية التلقائية مقابل رسوم
+    }
+
+    struct Position {
+        uint256 offerId;
+        address buyer;
+        address saleToken;
+        address collateralToken;
+        address paymentToken;
+        uint256 saleAmount;
+        uint256 collateralAmount;
+        uint256 totalPayable;
+        uint8   totalInstallments;
+        uint8   paidInstallments;
+        uint32  paymentInterval;
+        uint256 nextDueDate;
+        PositionState state;
+        bool    autoPayEnabled; // FB-60: المشتري اختار الدفع التلقائي مقابل رسوم
+    }
 
     // ═══════════ متغيرات قديمة — محفوظة لتوافق Storage مع الـ Proxy الحالي ═══════════
     // ⚠️ لا تُستخدم في المنطق الجديد — tokenConfigs تحل محلها
     // ⚠️ لا تحذف هذه المتغيرات أبداً — حذفها يكسر تخطيط الـ Storage في الـ Proxy
-    IERC20 internal usdc;
-    IERC20 internal wbtc;
-    IChainlinkFeed internal ethFeed;
-    IChainlinkFeed internal btcFeed;
+    IERC20 public usdc;
+    IERC20 public wbtc;
+    IChainlinkFeed public ethFeed;
+    IChainlinkFeed public btcFeed;
     // ════════════════════════════════════════════════════════════════════════
 
     uint16  public brokerageFeeBps;
@@ -91,8 +137,8 @@ contract MurabahaV6 is
     uint256 public nextOfferId;
     uint256 public nextPositionId;
 
-    mapping(uint256 => Offer)     internal offers;
-    mapping(uint256 => Position)  internal positions;
+    mapping(uint256 => Offer)     public offers;
+    mapping(uint256 => Position)  public positions;
     mapping(address => uint256[]) private _sellerOffers;
     mapping(address => uint256[]) private _buyerPositions;
     TransferLib.Ledger private _pendingETH;
@@ -124,25 +170,6 @@ contract MurabahaV6 is
     ///      الخسارة القصوى في حادث ≈ maxPositionValueUSDC × maxActivePositions (حدّ محسوب مسبقاً).
     uint256 public maxActivePositions;
 
-    // ═══════════ Build 22: السقف الإجمالي للعهدة — مُلحَق أخيراً (آمن للتخزين) ═══════════
-    // docs/global-cap-design.md · الثابت I1: العدّاد = مجموع العروض/الضمانات النشطة بالرمز.
-    // ETH المعلّق (الدلو C) محسوب سلفاً في totalPendingETH — لا يُكرَّر هنا.
-    /// @dev وحدات كل رمز في عروض نشطة غير مباعة (الدلو A)
-    mapping(address => uint256) public offerCustody;
-    /// @dev وحدات كل رمز في ضمانات مراكز نشطة (الدلو B)
-    mapping(address => uint256) public collateralCustody;
-    /// @dev السقف الصارم لكل الأموال بالـUSDC (6 dec). 0 = معطّل (ومعه الحدّان الآخران 0)
-    uint256 public globalCapUSDC;
-    /// @dev حدّ الالتزامات الجديدة (≤ global). الفرق = احتياطي الإنقاذ. 0 مع global>0 = إيقاف الالتزامات
-    uint256 public commitmentCapUSDC;
-    /// @dev حدّ مجموع العروض غير المباعة (≤ commitment). 0 مع global>0 = إيقاف العروض
-    uint256 public offerCapUSDC;
-    /// @dev خلل محاسبي مكتشَف (خروج أكبر من العدّاد) ⇒ الإيداعات موقوفة حتى reconcileCustody
-    bool public accountingFault;
-
-    /// @dev سقف صحة المركز لإضافة ضمان داخل احتياطي الإنقاذ (150%) — إنقاذ لا ركن
-    uint16 internal constant RESCUE_HF_BPS = 15000;
-
     // ═══════════ Events ═══════════
 
     event TokenAdded(address indexed token, address indexed feed, uint8 decimals, bool isStablecoin);
@@ -165,9 +192,6 @@ contract MurabahaV6 is
     event KeeperSet(address indexed oldKeeper, address indexed newKeeper);
     event GuardianSet(address indexed oldGuardian, address indexed newGuardian); // Build 18: M-03
     event LaunchCapsSet(uint256 maxPositionValueUSDC, uint256 maxActivePositions); // Build 20
-    event CustodyCapsSet(uint256 globalCapUSDC, uint256 commitmentCapUSDC, uint256 offerCapUSDC); // Build 22
-    event AccountingFaultDetected(address indexed token, uint256 had, uint256 removed);         // Build 22
-    event TokenFeedChanged(address indexed token, address oldFeed, address newFeed);            // Build 22
     event UpkeepFailed(uint256 indexed positionId, bytes reason);
     event EmergencyWithdrawn(address indexed token, address indexed to, uint256 amount);
     event ProtocolFeeSet(uint16 oldBps, uint16 newBps);            // شفافية إدارية (Slither/Aderyn L-9)
@@ -221,6 +245,19 @@ contract MurabahaV6 is
         _registerToken(_usdc,  address(0), 6,  true);  // USDC — ستابل
     }
 
+    /**
+     * @notice Upgrade initializer — للـ Proxy الموجود على Sepolia
+     * @dev يُستدعى عبر upgradeToAndCall() عند الترقية من نسخة سابقة
+     */
+    function initializeV2() external reinitializer(2) onlyOwner {
+        // ترحيل المتغيرات القديمة إلى tokenConfigs
+        if (address(ethFeed) != address(0))
+            _registerToken(address(0), address(ethFeed), 18, false);
+        if (address(wbtc) != address(0) && address(btcFeed) != address(0))
+            _registerToken(address(wbtc), address(btcFeed), 8, false);
+        if (address(usdc) != address(0))
+            _registerToken(address(usdc), address(0), 6, true);
+    }
 
     /// @dev UUPS: فقط المالك يقدر يرقّي العقد
     function _authorizeUpgrade(address) internal override onlyOwner {}
@@ -253,11 +290,7 @@ contract MurabahaV6 is
         _registerToken(token, feed, decimals, isStablecoin);
     }
 
-    /// @notice يعطّل توكناً — لا يُحذف بل يُوقَف.
-    /// @dev **المراكز القائمة لا تتأثّر فعلاً** (الوعد كان في التعليق وحده قبل هذا الإصلاح):
-    ///      الإطفاء يمنع *الالتزامات الجديدة* — `createOffer` و`buy` (GPT-09) — بينما التسعير
-    ///      يعتمد على **التسجيل** لا على `active`، فتبقى تسوية المركز القديم وتصفيته وفحص
-    ///      الأتمتة عاملة. راجع `_isRegistered`. أما `addCollateral` فيبقى محكوماً بـ`active`.
+    /// @notice يعطّل توكناً — لا يُحذف بل يُوقَف (العقود القائمة لا تتأثر)
     function removeSupportedToken(address token) external onlyOwner {
         if (!tokenConfigs[token].active) revert Errors.InvalidParams();
         tokenConfigs[token].active = false;
@@ -268,19 +301,10 @@ contract MurabahaV6 is
     function getSupportedTokens() external view returns (address[] memory) { return tokenList; }
 
     function _registerToken(address token, address feed, uint8 decimals, bool isStablecoin) internal {
-        TokenConfig memory prev = tokenConfigs[token];
-        if (prev.active) return; // تجاهل التكرار في initialize
+        if (tokenConfigs[token].active) return; // تجاهل التكرار في initialize
         if (isStablecoin && decimals != 6) revert Errors.InvalidParams();
-        if (_isRegistered(prev)) {
-            // Build 22: إعادة تفعيل رمز سُجِّل سابقاً — كان يُدفع إلى tokenList مرة ثانية فتُعدّ
-            // عهدته مرتين في totalExposureUSDC. العشريات وطبيعة الستابل ثابتتان لأن العهدة
-            // القائمة محسوبة بهما؛ تغيير المغذّي مسموح (ترحيل Chainlink) لكنه معلَن.
-            if (prev.decimals != decimals || prev.isStablecoin != isStablecoin) revert Errors.InvalidParams();
-            if (prev.chainlinkFeed != feed) emit TokenFeedChanged(token, prev.chainlinkFeed, feed);
-        } else {
-            tokenList.push(token); // مرة واحدة في عمر العقد
-        }
         tokenConfigs[token] = TokenConfig({ chainlinkFeed: feed, decimals: decimals, isStablecoin: isStablecoin, active: true });
+        tokenList.push(token);
         emit TokenAdded(token, feed, decimals, isStablecoin);
     }
 
@@ -333,22 +357,40 @@ contract MurabahaV6 is
             IERC20(saleToken).safeTransferFrom(msg.sender, address(this), amount);
         }
 
-        // Build 22: فحص المعاملات وكتابة العرض في OfferLogic (منقول حرفياً من _createOffer)
-        uint256 offerId = nextOfferId++;
-        OfferLogic.record(offers, _sellerOffers, offerId, OfferLogic.NewOffer({
-            saleToken: saleToken, collateralToken: collateralToken, paymentToken: paymentToken,
-            saleAmount: amount, profitBps: profitBps,
-            minInstallments: minInstallments, maxInstallments: maxInstallments,
-            paymentInterval: paymentInterval, minPurchaseAmount: minPurchaseAmount,
-            collateralRatioBps: collateralRatioBps, enableAutoLiquidate: enableAutoLiquidate
-        }));
-        emit OfferCreated(offerId, msg.sender, saleToken, collateralToken, paymentToken,
-            amount, minInstallments, maxInstallments, paymentInterval, minPurchaseAmount);
-        offerCustody[saleToken] += amount; // Build 22: الدلو A
-        _enforceCap(CAP_OFFER);
-        return offerId;
+        return _createOffer(saleToken, collateralToken, paymentToken, amount, profitBps,
+            minInstallments, maxInstallments, paymentInterval, minPurchaseAmount,
+            collateralRatioBps, enableAutoLiquidate);
     }
 
+    function _createOffer(
+        address saleToken, address collateralToken, address paymentToken,
+        uint256 saleAmount, uint16 profitBps,
+        uint8 minInstallments, uint8 maxInstallments,
+        uint32 paymentInterval, uint256 minPurchaseAmount,
+        uint16 collateralRatioBps, bool enableAutoLiquidate
+    ) internal returns (uint256 offerId) {
+        if (saleAmount == 0 || maxInstallments == 0 || minInstallments == 0) revert Errors.InvalidParams();
+        if (minInstallments > maxInstallments)          revert Errors.InvalidParams();
+        if (profitBps > MAX_PROFIT_BPS)                 revert Errors.InvalidParams();
+        if (collateralRatioBps < MIN_COLLATERAL_RATIO_BPS) revert Errors.InvalidParams(); // < 110%
+        if (collateralRatioBps > MAX_COLLATERAL_RATIO_BPS) revert Errors.InvalidParams(); // > 200%
+        if (paymentInterval < MIN_PAYMENT_INTERVAL)     revert Errors.InvalidParams();
+        if (paymentInterval > MAX_PAYMENT_INTERVAL)     revert Errors.InvalidParams();
+
+        offerId = nextOfferId++;
+        offers[offerId] = Offer({
+            seller: msg.sender, saleToken: saleToken, collateralToken: collateralToken,
+            paymentToken: paymentToken, totalAmount: saleAmount, saleAmount: saleAmount,
+            minPurchaseAmount: minPurchaseAmount, profitBps: profitBps,
+            minInstallments: minInstallments, maxInstallments: maxInstallments,
+            paymentInterval: paymentInterval, collateralRatioBps: collateralRatioBps,
+            state: OfferState.ACTIVE,
+            autoLiquidateEnabled: enableAutoLiquidate  // FB-60
+        });
+        _sellerOffers[msg.sender].push(offerId);
+        emit OfferCreated(offerId, msg.sender, saleToken, collateralToken, paymentToken,
+            saleAmount, minInstallments, maxInstallments, paymentInterval, minPurchaseAmount);
+    }
 
     /// @notice يزيد كمية العرض
     function increaseOffer(uint256 offerId, uint256 amount) external payable whenNotPaused nonReentrant {
@@ -367,9 +409,7 @@ contract MurabahaV6 is
         }
         o.saleAmount  += added;
         o.totalAmount += added;
-        offerCustody[o.saleToken] += added; // Build 22
         emit OfferIncreased(offerId, added, o.totalAmount);
-        _enforceCap(CAP_OFFER);
     }
 
     function decreaseOffer(uint256 offerId, uint256 amount) external nonReentrant {
@@ -379,7 +419,6 @@ contract MurabahaV6 is
         if (amount == 0 || amount > o.saleAmount) revert Errors.InvalidParams();
         o.saleAmount -= amount;
         if (o.saleAmount == 0) o.state = OfferState.CLOSED;
-        _custodyOut(offerCustody, o.saleToken, amount); // Build 22 — خروج: لا فحص سقف
         _deliverToken(o.saleToken, msg.sender, amount);
         emit OfferDecreased(offerId, amount, o.saleAmount);
     }
@@ -391,10 +430,7 @@ contract MurabahaV6 is
         uint256 remaining = o.saleAmount;
         o.saleAmount = 0;
         o.state = OfferState.CLOSED;
-        if (remaining > 0) {
-            _custodyOut(offerCustody, o.saleToken, remaining); // Build 22 — خروج
-            _deliverToken(o.saleToken, msg.sender, remaining);
-        }
+        if (remaining > 0) _deliverToken(o.saleToken, msg.sender, remaining);
         emit OfferCancelled(offerId);
     }
 
@@ -427,9 +463,7 @@ contract MurabahaV6 is
             IERC20(o.collateralToken).safeTransferFrom(msg.sender, address(this), collateralAmount);
             colAmount = collateralAmount;
         }
-        uint256 positionId = _buy(offerId, purchaseAmount, colAmount, quotedSalePrice, selectedInstallments, enableAutoPay);
-        _enforceCap(CAP_COMMITMENT); // Build 22: على الصافي بعد خروج المبيع ودخول الضمان
-        return positionId;
+        return _buy(offerId, purchaseAmount, colAmount, quotedSalePrice, selectedInstallments, enableAutoPay);
     }
 
     function _buy(
@@ -437,41 +471,79 @@ contract MurabahaV6 is
         uint256 quotedSalePrice, uint8 selectedInstallments, bool enableAutoPay
     ) internal returns (uint256 positionId) {
         Offer storage o = offers[offerId];
-        // Build 22: الفحوصات والتسعير والحسابات في BuyLogic (منقولة حرفياً وبنفس ترتيب الأخطاء).
-        // التأثيرات والتحويلات والأحداث باقية هنا كما هي.
-        BuyLogic.Quote memory q = BuyLogic.quote(o, tokenConfigs, BuyLogic.Params({
-            purchaseAmount: purchaseAmount,
-            collateralAmount: collateralAmount,
-            quotedSalePrice: quotedSalePrice,
-            selectedInstallments: selectedInstallments,
-            brokerageFeeBps: brokerageFeeBps,
-            protocolFeeBps: protocolFeeBps,
-            slippageToleranceBps: SLIPPAGE_TOLERANCE_BPS,
-            maxPositionValueUSDC: maxPositionValueUSDC,
-            maxActivePositions: maxActivePositions,
-            activePositions: _activePositionIds.length,
-            sequencer: sequencerUptimeFeed
-        }));
+        if (o.state != OfferState.ACTIVE)  revert Errors.OfferNotActive();
+
+        // ═══════════ FB-31: حماية ضد Self-Buy (شرعي + أمني) ═══════════
+        // المرابحة عقد بين طرفين مختلفين. شراء البائع لنفسه = بيع العينة (محرّم).
+        // كما يمنع: التلاعب بـ TVL، ضخّ كاذب، استرداد رسوم البروتوكول بالخطأ.
+        if (o.seller == msg.sender) revert Errors.SelfBuyNotAllowed();
+        // ════════════════════════════════════════════════════════════
+
+        if (purchaseAmount == 0 || purchaseAmount > o.saleAmount) revert Errors.InvalidParams();
+        if (o.minPurchaseAmount > 0 && purchaseAmount < o.minPurchaseAmount)
+            revert Errors.BelowMinPurchase(purchaseAmount, o.minPurchaseAmount);
+        if (selectedInstallments < o.minInstallments || selectedInstallments > o.maxInstallments)
+            revert Errors.InvalidInstallments(selectedInstallments, o.minInstallments, o.maxInstallments);
+
+        // D-018: فحص الانزلاق
+        uint256 salePrice = _tokenPriceUSDC(o.saleToken);
+        PriceLib.checkSlippage(quotedSalePrice, salePrice, SLIPPAGE_TOLERANCE_BPS);
+
+        // D-012: العمولات من أصل البيع
+        uint256 sellerFee      = (purchaseAmount * brokerageFeeBps) / BPS;
+        uint256 buyerFee       = (purchaseAmount * brokerageFeeBps) / BPS;
+        uint256 protocolFeeAmt = (purchaseAmount * protocolFeeBps)  / BPS;
+        uint256 netToBuyer     = purchaseAmount - sellerFee - buyerFee - protocolFeeAmt;
+
+        // الربح التناسبي
+        uint16 effectiveProfitBps = uint16(
+            (uint256(o.profitBps) * selectedInstallments) / o.maxInstallments
+        );
+        if (o.profitBps > 0 && effectiveProfitBps == 0) revert Errors.EffectiveProfitTooLow();
+
+        // قيمة الصافي المُستلَم بالـ paymentToken (6 dec)
+        uint256 saleValueUSDC = PriceLib.assetToUSDC(
+            netToBuyer, salePrice, tokenConfigs[o.saleToken].decimals
+        );
+        uint256 totalPayable = MurabahaMath.sellingPrice(saleValueUSDC, effectiveProfitBps);
+
+        // D-008: تقييم الضمان
+        uint256 collateralValueUSDC = _tokenValueUSDC(o.collateralToken, collateralAmount);
+        uint256 requiredValue       = MurabahaMath.requiredCollateralUSDC(totalPayable, o.collateralRatioBps);
+        if (collateralValueUSDC < requiredValue)
+            revert Errors.InsufficientCollateral(collateralValueUSDC, requiredValue);
+
+        // ── Build 20: سقف الإطلاق المحروس (يحدّ الخسارة القصوى قبل التدقيق المحترف) ──
+        if (maxPositionValueUSDC != 0 && totalPayable > maxPositionValueUSDC)
+            revert Errors.PositionExceedsCap(totalPayable, maxPositionValueUSDC);
+        if (maxActivePositions != 0 && _activePositionIds.length >= maxActivePositions)
+            revert Errors.ActivePositionsCapReached(maxActivePositions);
 
         // ── Effects ──
         o.saleAmount -= purchaseAmount;
         if (o.saleAmount == 0) o.state = OfferState.CLOSED;
-        _custodyOut(offerCustody, o.saleToken, purchaseAmount);      // Build 22: A ⇢ خارج العقد
-        collateralCustody[o.collateralToken] += collateralAmount;    // Build 22: B
 
         positionId = nextPositionId++;
-        BuyLogic.record(positions, _buyerPositions, _activePositionIds, _activePositionIndex, o,
-            positionId, offerId, q.netToBuyer, collateralAmount, q.totalPayable,
-            selectedInstallments, enableAutoPay); // Build 22: المركز + الفهرسان (M-01)
+        positions[positionId] = Position({
+            offerId: offerId, buyer: msg.sender,
+            saleToken: o.saleToken, collateralToken: o.collateralToken, paymentToken: o.paymentToken,
+            saleAmount: netToBuyer, collateralAmount: collateralAmount,
+            totalPayable: totalPayable, totalInstallments: selectedInstallments,
+            paidInstallments: 0, paymentInterval: o.paymentInterval,
+            nextDueDate: block.timestamp + o.paymentInterval, state: PositionState.ACTIVE,
+            autoPayEnabled: enableAutoPay  // FB-60
+        });
+        _buyerPositions[msg.sender].push(positionId);
+        _addActivePosition(positionId); // M-01: أضِف للفهرس النشط
 
         // ── Interactions ──
-        if (q.sellerFee + q.buyerFee > 0) _deliverToken(o.saleToken, brokerTreasury,  q.sellerFee + q.buyerFee);
-        if (q.protocolFee > 0)            _deliverToken(o.saleToken, protocolTreasury, q.protocolFee);
-        _deliverToken(o.saleToken, msg.sender, q.netToBuyer); // push مباشر — msg.sender
+        if (sellerFee + buyerFee > 0) _deliverToken(o.saleToken, brokerTreasury,  sellerFee + buyerFee);
+        if (protocolFeeAmt > 0)       _deliverToken(o.saleToken, protocolTreasury, protocolFeeAmt);
+        _deliverToken(o.saleToken, msg.sender, netToBuyer); // push مباشر — msg.sender
 
-        emit BrokerageCollected(offerId, o.saleToken, q.sellerFee, q.buyerFee, q.protocolFee, brokerTreasury, protocolTreasury);
+        emit BrokerageCollected(offerId, o.saleToken, sellerFee, buyerFee, protocolFeeAmt, brokerTreasury, protocolTreasury);
         emit PartialPurchaseCreated(positionId, offerId, purchaseAmount, o.saleAmount);
-        emit Purchased(positionId, offerId, msg.sender, q.netToBuyer, collateralAmount, q.totalPayable, selectedInstallments);
+        emit Purchased(positionId, offerId, msg.sender, netToBuyer, collateralAmount, totalPayable, selectedInstallments);
     }
 
     // ═══════════ Health Factor + إدارة الضمان ═══════════
@@ -494,7 +566,6 @@ contract MurabahaV6 is
         uint256 newHF  = MurabahaMath.healthFactor(newCol, debt);
         if (newHF < MIN_COLLATERAL_RATIO_BPS) revert Errors.HealthFactorTooLow(newHF, MIN_COLLATERAL_RATIO_BPS);
         p.collateralAmount -= amount;
-        _custodyOut(collateralCustody, p.collateralToken, amount); // Build 22 — خروج
         _deliverToken(p.collateralToken, msg.sender, amount);
         emit CollateralChanged(positionId, -int256(amount));
     }
@@ -506,9 +577,6 @@ contract MurabahaV6 is
     function addCollateral(uint256 positionId, uint256 amount) external payable whenNotPaused nonReentrant {
         Position storage p = positions[positionId];
         if (p.state != PositionState.ACTIVE) revert Errors.PositionNotActive();
-        // ⚠️ هنا يبقى الفحص على `active` عمداً — اختبار قائم يوثّق هذا السلوك.
-        //    نتيجته أن المدين لا يقدر تعزيز ضمان مركزٍ قائم بعد إطفاء رمزه، وهو قرار
-        //    تصميمي مفتوح للنقاش (لا عيب مثبَت) — لا يُغيَّر إلا بقرار صريح من المالك.
         if (!tokenConfigs[p.collateralToken].active) revert Errors.TokenNotSupported();
         uint256 added;
         if (p.collateralToken == address(0)) {
@@ -520,13 +588,7 @@ contract MurabahaV6 is
             added = amount;
         }
         p.collateralAmount += added;
-        collateralCustody[p.collateralToken] += added; // Build 22
         emit CollateralChanged(positionId, int256(added));
-        // Build 22: إيداع إنقاذ — يخضع للسقف الصارم دائماً. فوق حدّ الالتزامات (داخل احتياطي
-        // الإنقاذ) يُقبَل فقط ما يُبقي صحة المركز ≤ 150%: إنقاذ لا ركن ضمان زائد.
-        uint256 exp = _enforceCap(CAP_RESCUE);
-        if (exp > commitmentCapUSDC && healthFactor(positionId) > RESCUE_HF_BPS)
-            revert Errors.GlobalCapExceeded(exp, commitmentCapUSDC);
     }
 
     // ═══════════ سداد الأقساط ═══════════
@@ -558,7 +620,6 @@ contract MurabahaV6 is
             col = p.collateralAmount;
             p.collateralAmount = 0;
             _removeActivePosition(positionId); // M-01
-            _custodyOut(collateralCustody, collateralToken, col); // Build 22 — خروج
         }
 
         IERC20(paymentToken).safeTransferFrom(payer, address(this), amount + autoFee);
@@ -588,7 +649,6 @@ contract MurabahaV6 is
         _removeActivePosition(positionId); // M-01
         uint256 col = p.collateralAmount;
         p.collateralAmount = 0;
-        _custodyOut(collateralCustody, p.collateralToken, col); // Build 22 — خروج
         _deliverToken(p.collateralToken, p.buyer, col);
         emit EarlyRepaidCash(positionId, debt);
         emit PositionCompleted(positionId, col);
@@ -624,7 +684,6 @@ contract MurabahaV6 is
         p.collateralAmount = 0;
         p.state = isLiquidation ? PositionState.LIQUIDATED : PositionState.COMPLETED;
         _removeActivePosition(positionId); // M-01
-        _custodyOut(collateralCustody, p.collateralToken, collateral); // Build 22 — خروج (قد يدخل C)
 
         // FB-60: رسوم التصفية التلقائية (0.5% من حصة البائع تذهب للبروتوكول)
         if (withAutoFee && sellerShare > 0) {
@@ -642,6 +701,11 @@ contract MurabahaV6 is
 
     // ═══════════ M-01: إدارة فهرس المراكز النشطة ═══════════
 
+    /// @dev يُضيف مركزاً للفهرس النشط (عند فتح المركز)
+    function _addActivePosition(uint256 positionId) internal {
+        _activePositionIds.push(positionId);
+        _activePositionIndex[positionId] = _activePositionIds.length; // نخزّن index+1
+    }
 
     /// @dev يُزيل مركزاً من الفهرس النشط بنمط swap-and-pop (عند الاكتمال/التصفية)
     function _removeActivePosition(uint256 positionId) internal {
@@ -663,13 +727,33 @@ contract MurabahaV6 is
         return _activePositionIds.length;
     }
 
-    /// @dev Build 22: المنطق منقول حرفياً إلى AutomationLogic (قراءة فقط) — حدّ الحجم
     function checkUpkeep(bytes calldata) external view returns (bool upkeepNeeded, bytes memory performData) {
-        return AutomationLogic.check(positions, offers, _activePositionIds);
+        uint256 len = _activePositionIds.length;
+        for (uint256 i = 0; i < len; i++) {
+            uint256 pid = _activePositionIds[i];
+            Position storage p = positions[pid];
+            (bool liq,) = isLiquidatable(pid);
+            // FB-60: التصفية التلقائية فقط إذا فعّلها البائع
+            if (liq && offers[p.offerId].autoLiquidateEnabled)
+                return (true, abi.encode(pid));
+            // FB-60: الدفع التلقائي فقط إذا فعّله المشتري
+            // Build 18 (M-01): + شرط قابلية التحصيل — مركز برصيد/سماحية ناقصة يُتخطّى
+            // بدل أن يحتلّ رأس الطابور ويحجب أتمتة بقية المراكز حتى GRACE.
+            // المتخطّى: يُدفع يدوياً، أو يصبح قابلاً للتصفية بعد GRACE فيلتقطه الفرع الأول.
+            if (!liq && p.autoPayEnabled && block.timestamp >= p.nextDueDate && _canAutoPay(p))
+                return (true, abi.encode(pid));
+        }
+        return (false, bytes(""));
     }
 
-
-
+    /// @dev Build 18 (M-01): هل يمكن تحصيل القسط التلقائي فعلاً؟ (رصيد + سماحية المشتري)
+    function _canAutoPay(Position storage p) internal view returns (bool) {
+        uint256 amount = MurabahaMath.nextInstallment(p.totalPayable, p.totalInstallments, p.paidInstallments);
+        uint256 total  = amount + (amount * AUTO_PAY_FEE_BPS) / BPS;
+        IERC20 pay = IERC20(p.paymentToken);
+        return pay.balanceOf(p.buyer) >= total
+            && pay.allowance(p.buyer, address(this)) >= total;
+    }
 
     function performUpkeep(bytes calldata performData) external whenNotPaused onlyKeeperOrOwner {
         uint256 positionId = abi.decode(performData, (uint256));
@@ -732,28 +816,29 @@ contract MurabahaV6 is
 
     // ═══════════ أدوات داخلية ═══════════
 
-
-    /// @dev هل سُجِّل هذا الرمز يوماً؟ فحص **O(1)** لا يتأثّر بإطفاء `active`.
-    ///      `addSupportedToken` يفرض أن غير الستابل له `chainlinkFeed`، وأن الستابل
-    ///      يُسجَّل بـ`isStablecoin=true` — فأيّهما يعني تسجيلاً. رمز لم يُسجَّل قطّ:
-    ///      `chainlinkFeed == 0` و`isStablecoin == false` معاً، فيُرفض.
-    ///      نظير `_everRegistered` (المعتمِد على tokenList) لكنه بلا حلقة — لأن هذا
-    ///      المسار ساخن: يُستدعى لكل مركز داخل `checkUpkeep`.
-    function _isRegistered(TokenConfig memory cfg) private pure returns (bool) {
-        return cfg.isStablecoin || cfg.chainlinkFeed != address(0);
+    /// @dev H2: يفحص L2 Sequencer قبل قراءة السعر (إن كان الـ feed مضبوطاً)
+    function _checkSequencer() internal view {
+        address seq = sequencerUptimeFeed;
+        if (seq != address(0)) PriceLib.requireSequencerUp(IChainlinkFeed(seq));
     }
 
     /// @dev سعر وحدة من التوكن بـ USDC (6 decimals). الستابل كوين = 1e6.
-    ///      ⚠️ يفحص **التسجيل** لا `active` عمداً: إطفاء الدعم يمنع صفقات جديدة، ولا يجوز
-    ///      أن يُعطِّل تسعير مركز قائم — وإلا تعذّرت تسويته (`earlyRepayWithCollateral`)
-    ///      وانكسرت جولة `checkUpkeep` كلها عند أول مركز برمز مُطفأ.
     function _tokenPriceUSDC(address token) internal view returns (uint256) {
-        return PricingLib.price(tokenConfigs[token], sequencerUptimeFeed); // Build 22: مصدر واحد
+        TokenConfig memory cfg = tokenConfigs[token];
+        if (!cfg.active) revert Errors.TokenNotSupported();
+        if (cfg.isStablecoin) return 1e6;
+        _checkSequencer();
+        return IChainlinkFeed(cfg.chainlinkFeed).priceUSDC();
     }
 
-    /// @dev قيمة كمية من التوكن بـ USDC (6 decimals) — يفحص التسجيل لا `active` (انظر أعلاه)
+    /// @dev قيمة كمية من التوكن بـ USDC (6 decimals)
     function _tokenValueUSDC(address token, uint256 amount) internal view returns (uint256) {
-        return PricingLib.value(tokenConfigs[token], sequencerUptimeFeed, amount); // Build 22: مصدر واحد
+        TokenConfig memory cfg = tokenConfigs[token];
+        if (!cfg.active) revert Errors.TokenNotSupported();
+        if (cfg.isStablecoin) return amount; // 1:1 — الستابل
+        _checkSequencer();
+        uint256 price = IChainlinkFeed(cfg.chainlinkFeed).priceUSDC();
+        return PriceLib.assetToUSDC(amount, price, cfg.decimals);
     }
 
     /// @dev يسلّم أصلاً — push مباشر لـ msg.sender، pull للباقين
@@ -833,96 +918,6 @@ contract MurabahaV6 is
         emit LaunchCapsSet(maxPosValueUSDC, maxActivePos);
     }
 
-    // ═══════════ Build 22: السقف الإجمالي للعهدة (docs/global-cap-design.md) ═══════════
-    // الحساب والمصالحة والترحيل في CustodyLib (مكتبة خارجية مربوطة) — حدّ حجم العقد §7.
-
-    uint8 private constant CAP_RESCUE     = 0; // addCollateral — الصارم فقط (+ قاعدة الإنقاذ عند المستدعي)
-    uint8 private constant CAP_COMMITMENT = 1; // buy — الصارم ثم حدّ الالتزامات
-    uint8 private constant CAP_OFFER      = 2; // createOffer/increaseOffer — + حدّ العروض
-
-    /// @notice يضبط الحدود الثلاثة (USDC 6 dec). (0,0,0) = معطّل. انظر §4.0 لدلالة الصفر.
-    function setCustodyCaps(uint256 globalCap, uint256 commitmentCap, uint256 offerCap) external onlyOwner {
-        _setCustodyCaps(globalCap, commitmentCap, offerCap);
-    }
-
-    function _setCustodyCaps(uint256 g, uint256 k, uint256 o) internal {
-        // CAP-V2-01: الصفر لا يعني «بلا حد» إلا إذا كانت الثلاثة صفراً
-        if (g == 0 ? (k != 0 || o != 0) : (k > g || o > k)) revert Errors.InvalidParams();
-        globalCapUSDC = g; commitmentCapUSDC = k; offerCapUSDC = o;
-        emit CustodyCapsSet(g, k, o);
-    }
-
-
-    /// @notice إجمالي الأموال المحتجزة لحساب المستخدمين بالـUSDC: A + B + C
-    function totalExposureUSDC() public view returns (uint256) { return _exposure(false); }
-
-
-    function _exposure(bool offersOnly) internal view returns (uint256) {
-        return CustodyLib.exposure(offerCustody, collateralCustody, tokenList, tokenConfigs,
-            totalPendingETH, sequencerUptimeFeed, offersOnly);
-    }
-
-
-    /// @dev يُستدعى في **نهاية** دوال الإيداع فقط — الخروج لا يُفحص أبداً.
-    /// @return exp الإجمالي بعد العملية (0 إن كان السقف معطّلاً)
-    function _enforceCap(uint8 kind) internal view returns (uint256 exp) {
-        if (accountingFault) revert Errors.AccountingFault();
-        // I2 — قاطع دائرة إن سُحبت أموال بتجاوز المحاسبة
-        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH);
-        uint256 g = globalCapUSDC;
-        if (g == 0) return 0;
-        exp = _exposure(false);
-        if (exp > g) revert Errors.GlobalCapExceeded(exp, g); // الصارم أولاً ومستقلاً — CAP-V2-01
-        if (kind == CAP_RESCUE) return exp;
-        uint256 k = commitmentCapUSDC;
-        if (k == 0) revert Errors.NewCommitmentsPaused();
-        if (exp > k) revert Errors.GlobalCapExceeded(exp, k);
-        if (kind == CAP_OFFER) {
-            uint256 o = offerCapUSDC;
-            if (o == 0) revert Errors.NewCommitmentsPaused();
-            uint256 oe = _exposure(true);
-            if (oe > o) revert Errors.OfferCapExceeded(oe, o);
-        }
-    }
-
-    /// @dev إنقاص العهدة عند الخروج. أكبر من العدّاد = خلل في I1: يُكمل الخروج (لا يُحبس مال
-    ///      المستخدم) ويرفع accountingFault فتتوقف الإيداعات حتى مصالحة محمية.
-    function _custodyOut(mapping(address => uint256) storage bucket, address t, uint256 x) internal {
-        uint256 c = bucket[t];
-        if (x > c) {
-            accountingFault = true;
-            emit AccountingFaultDetected(t, c, x);
-            bucket[t] = 0;
-        } else {
-            bucket[t] = c - x;
-        }
-    }
-
-    /// @notice مصالحة العهدة بعد خلل محاسبي — قيم من scripts/reconcile-custody.ts يوقّعها الـSafe.
-    /// @dev لقطة **كاملة** مطابقة لـtokenList حرفياً، وI2 لكل رمز، ثم يُمسح العلم. لا تثبت I1
-    ///      على السلسلة — ذلك دور السكربت وتوقيعَي الـSafe.
-    function reconcileCustody(
-        address[] calldata tokens,
-        uint256[] calldata offerValues,
-        uint256[] calldata collateralValues
-    ) external onlyOwner whenPaused {
-        CustodyLib.reconcile(offerCustody, collateralCustody, tokenList, totalPendingETH,
-            tokens, offerValues, collateralValues);
-        accountingFault = false;
-    }
-
-    /// @notice ترحيل Build 22 — يُستدعى حصراً عبر upgradeToAndCall في معاملة الـSafe نفسها.
-    /// @dev يبني العدّادات من التخزين وقت الترقية (لا يفترض حالة سابقة)، ويرفض tokenList
-    ///      المكرّرة (خلل ما قبل Build 22)، ويفرض I2 لكل رمز.
-    function initializeV3(uint256 globalCap, uint256 commitmentCap, uint256 offerCap)
-        external reinitializer(3) onlyOwner
-    {
-        CustodyLib.migrate(offerCustody, collateralCustody, tokenList, offers, nextOfferId,
-            positions, _activePositionIds);
-        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH);
-        _setCustodyCaps(globalCap, commitmentCap, offerCap);
-    }
-
     /// @notice H2: يضبط مغذّي L2 Sequencer Uptime (address(0) لتعطيل الفحص على الشبكات بلا sequencer)
     function setSequencerUptimeFeed(address feed) external onlyOwner {
         sequencerUptimeFeed = feed;
@@ -998,9 +993,24 @@ contract MurabahaV6 is
         uint16  effectiveProfitBps,
         uint256 netToBuyer
     ) {
-        // Build 22: منقولة حرفياً إلى BuyLogic.estimate (قراءة فقط) — حدّ الحجم
-        BuyLogic.Estimate memory e = BuyLogic.estimate(offers[offerId], tokenConfigs, purchaseAmount,
-            selectedInstallments, brokerageFeeBps, protocolFeeBps, sequencerUptimeFeed);
-        return (e.totalPayable, e.installmentAmount, e.requiredCollateralUSDC, e.effectiveProfitBps, e.netToBuyer);
+        Offer storage o = offers[offerId];
+        if (o.state != OfferState.ACTIVE) revert Errors.OfferNotActive();
+        if (purchaseAmount == 0 || purchaseAmount > o.saleAmount) revert Errors.InvalidParams();
+        if (selectedInstallments < o.minInstallments || selectedInstallments > o.maxInstallments)
+            revert Errors.InvalidInstallments(selectedInstallments, o.minInstallments, o.maxInstallments);
+
+        uint256 sellerFee      = (purchaseAmount * brokerageFeeBps) / BPS;
+        uint256 buyerFee       = (purchaseAmount * brokerageFeeBps) / BPS;
+        uint256 protocolFeeAmt = (purchaseAmount * protocolFeeBps)  / BPS;
+        netToBuyer = purchaseAmount - sellerFee - buyerFee - protocolFeeAmt;
+
+        effectiveProfitBps = uint16((uint256(o.profitBps) * selectedInstallments) / o.maxInstallments);
+        if (o.profitBps > 0 && effectiveProfitBps == 0) revert Errors.EffectiveProfitTooLow();
+
+        uint256 salePrice    = _tokenPriceUSDC(o.saleToken);
+        uint256 saleValueUSDC = PriceLib.assetToUSDC(netToBuyer, salePrice, tokenConfigs[o.saleToken].decimals);
+        totalPayable          = MurabahaMath.sellingPrice(saleValueUSDC, effectiveProfitBps);
+        installmentAmount     = MurabahaMath.regularInstallment(totalPayable, selectedInstallments);
+        requiredCollateralUSDC = MurabahaMath.requiredCollateralUSDC(totalPayable, o.collateralRatioBps);
     }
 }

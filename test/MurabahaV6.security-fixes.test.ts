@@ -2,6 +2,7 @@
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { linkedFactory, UPG } from "./helpers/linked";
 
 // ── وحدات ──
 const U   = (n: number) => BigInt(Math.round(n * 1e6));   // USDC 6 dec
@@ -20,12 +21,12 @@ async function deploy() {
   const wbtc    = await (await ethers.getContractFactory("MockWBTC")).deploy();
   const ethFeed = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
   const btcFeed = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
-  const Murabaha = await ethers.getContractFactory("MurabahaV6");
+  const Murabaha = await linkedFactory("MurabahaV6");
   const m = await upgrades.deployProxy(Murabaha, [
     await usdc.getAddress(), await wbtc.getAddress(),
     await ethFeed.getAddress(), await btcFeed.getAddress(),
     owner.address, owner.address,
-  ], { kind: "uups", unsafeAllow: ["constructor"] });
+  ], { kind: "uups", ...UPG });
   await m.setKeeper(keeper.address);
   await wbtc.mint(seller.address, BTC(100));
   for (const b of [buyer, buyer2]) {
@@ -133,14 +134,12 @@ describe("H2 — حالات حدّية ومسار التكامل", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // M5 — initializeV2 يجب أن تكون محميّة بـ onlyOwner (تُستدعى عبر فرع — المرحلة 11)
 // ═══════════════════════════════════════════════════════════════════════════
-describe("M5 — initializeV2 محميّة بـ onlyOwner", () => {
-  it("غير المالك لا يستطيع استدعاء initializeV2", async () => {
+describe("M5 — initializeV2 أُزيلت في Build 22 (ترحيل Sepolia قديم؛ نسخة التهيئة على Base = 1)", () => {
+  it("لا يوجد selector لـinitializeV2 في الكود المنشور ولا في الواجهة", async () => {
     const ctx = await deploy();
-    await expect(ctx.m.connect(ctx.stranger).initializeV2()).to.be.reverted;
-  });
-
-  it("المالك يستطيع استدعاء initializeV2 (مرّة واحدة)", async () => {
-    const ctx = await deploy();
-    await expect(ctx.m.connect(ctx.owner).initializeV2()).to.not.be.reverted;
+    expect((ctx.m.interface as any).getFunction("initializeV2")).to.equal(null);
+    const sel = ethers.id("initializeV2()").slice(0, 10);
+    // استدعاء خام للـselector يرتدّ (لا fallback) — لا مسار تهيئة قديم قابل للاستدعاء
+    await expect(ctx.owner.sendTransaction({ to: await ctx.m.getAddress(), data: sel })).to.be.reverted;
   });
 });

@@ -1,5 +1,6 @@
 import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { linkedFactory, UPG } from "./linked";
 
 /**
  * مولّد سيناريوهات لمحاسبة العهدة — يُستعمل في:
@@ -21,16 +22,17 @@ export const BTC_FEED = 6_000_000_000_000n; // $60,000
 const PRICE_USDC: Record<string, bigint> = {}; // token → سعر بـ6 خانات
 let offerSeq = 0; // يناوب أصل الضمان بين العروض حتى تتوفّر عروض بضمان ETH وcbBTC دائماً
 
-export async function deployScenario() {
+/** @param factory اختياري — للمقارنة السلوكية (عقد مرجعي قبل إعادة الهيكلة) */
+export async function deployScenario(factory?: () => Promise<any>) {
   const [owner, seller, seller2, buyer, buyer2, stranger] = await ethers.getSigners();
   const usdc    = await (await ethers.getContractFactory("MockUSDC")).deploy();
   const wbtc    = await (await ethers.getContractFactory("MockWBTC")).deploy();
   const ethFeed = await (await ethers.getContractFactory("MockFeed")).deploy(ETH_FEED, 8);
   const btcFeed = await (await ethers.getContractFactory("MockFeed")).deploy(BTC_FEED, 8);
-  const m: any = await upgrades.deployProxy(await ethers.getContractFactory("MurabahaV6"), [
+  const m: any = await upgrades.deployProxy(factory ? await factory() : await linkedFactory("MurabahaV6"), [
     await usdc.getAddress(), await wbtc.getAddress(),
     await ethFeed.getAddress(), await btcFeed.getAddress(), owner.address, owner.address,
-  ], { kind: "uups", unsafeAllow: ["constructor"] });
+  ], { kind: "uups", ...UPG });
   const mAddr = await m.getAddress();
   const wAddr = await wbtc.getAddress();
   offerSeq = 0;
@@ -66,7 +68,7 @@ const signerOf = (s: Scn, addr: string) =>
 async function activeOffers(s: Scn) {
   const out: { id: bigint; o: any }[] = [];
   for (let i = 1n; i < (await s.m.nextOfferId()); i++) {
-    const o = await s.m.offers(i);
+    const o = await s.m.getOffer(i);
     if (o.state === 0n && o.saleAmount > 0n) out.push({ id: i, o });
   }
   return out;
@@ -74,7 +76,7 @@ async function activeOffers(s: Scn) {
 async function activePositions(s: Scn) {
   const out: { id: bigint; p: any }[] = [];
   for (let i = 1n; i < (await s.m.nextPositionId()); i++) {
-    const p = await s.m.positions(i);
+    const p = await s.m.getPosition(i);
     if (p.state === 0n) out.push({ id: i, p });
   }
   return out;
@@ -208,16 +210,17 @@ export async function runOp(s: Scn, op: Op, r: (n: number) => number, check?: Ch
       for (;;) {
         tx = await s.m.connect(who).payInstallment(id);
         await tx.wait();
-        if ((await s.m.positions(id)).state !== 0n) return tx; // القسط الأخير — COMPLETED
+        if ((await s.m.getPosition(id)).state !== 0n) return tx; // القسط الأخير — COMPLETED
         await guarded(check, "payToCompletion:payInstallment");
       }
     }
     case "liquidateUnderwater": {
-      // تصفية نقص الضمان (لا التأخّر): هبوط سعر الضمان 50% ⇒ HF < 105%، ثم يُعاد السعر
+      // تصفية نقص الضمان (لا التأخّر): هبوط سعر الضمان 90% ⇒ HF < 105% حتى لمركز زِيد ضمانه
+      // (50% كان لا يكفي لمركز مُعزَّز بـaddCollateral — ظهر في البذرة 7)، ثم يُعاد السعر
       const { id, p } = pick(await activePositions(s));
       const feed = isEth(p.collateralToken) ? s.ethFeed : s.btcFeed;
       const orig = isEth(p.collateralToken) ? ETH_FEED : BTC_FEED;
-      await feed.setAnswer(orig / 2n);
+      await feed.setAnswer(orig / 10n);
       const tx = await s.m.connect(s.stranger).liquidatePositionPublic(id);
       await tx.wait();
       await feed.setAnswer(orig);

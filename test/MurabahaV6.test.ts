@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { linkedFactory, UPG } from "./helpers/linked";
 
 /**
  * اختبارات V6 — Multi-Token Architecture
@@ -28,12 +29,12 @@ async function deploy() {
   const ethFeed = await MockFeed.deploy(300000000000n, 8); // $3000
   const btcFeed = await MockFeed.deploy(6000000000000n, 8); // $60000
 
-  const Murabaha = await ethers.getContractFactory("MurabahaV6");
+  const Murabaha = await linkedFactory("MurabahaV6");
   const m = await upgrades.deployProxy(Murabaha, [
     await usdc.getAddress(), await wbtc.getAddress(),
     await ethFeed.getAddress(), await btcFeed.getAddress(),
     owner.address, owner.address
-  ], { kind: "uups", unsafeAllow: ["constructor"] });
+  ], { kind: "uups", ...UPG });
 
   await wbtc.mint(seller.address, BTC(10));
   await wbtc.mint(buyer.address,  BTC(5));

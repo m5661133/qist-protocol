@@ -85,16 +85,4 @@ library Errors {
     error PositionExceedsCap(uint256 totalPayable, uint256 cap);
     /// @notice عدد المراكز النشطة بلغ سقف الإطلاق المحروس (maxActivePositions)
     error ActivePositionsCapReached(uint256 cap);
-
-    // ── Build 22: السقف الإجمالي للعهدة (docs/global-cap-design.md) ────────
-    /// @notice إجمالي الأموال المحتجزة بعد العملية يتجاوز الحدّ (الصارم أو حدّ الالتزامات)
-    error GlobalCapExceeded(uint256 exposureUSDC, uint256 capUSDC);
-    /// @notice مجموع العروض غير المباعة يتجاوز حدّها الفرعي
-    error OfferCapExceeded(uint256 offersUSDC, uint256 capUSDC);
-    /// @notice الالتزامات الجديدة موقوفة (commitmentCap أو offerCap = 0 مع سقف مفعّل)
-    error NewCommitmentsPaused();
-    /// @notice خلل محاسبي مكتشَف — الإيداعات موقوفة حتى المصالحة
-    error AccountingFault();
-    /// @notice الرصيد الفعلي أقل من العهدة المسجّلة (I2)
-    error CustodyInsolvent(address token, uint256 balance, uint256 owed);
 }
