@@ -16,7 +16,7 @@
  */
 import { ethers, network } from "hardhat";
 import { PROXY, BUILD21_IMPL, BUILD21_CODEHASH, CAPS, LIBS, IMPL_SLOT, preflight, deployBuild22, validateAgainstBuild21, upgradeCalldata } from "./build22-upgrade";
-import { planReconciliation, verifyPlan, healthOf } from "./custody-reconcile";
+import { planReconciliation, verifyPlan, unpauseReadiness, healthOf } from "./custody-reconcile";
 
 const INIT_SLOT = "0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00";
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -235,9 +235,10 @@ async function main() {
   await (await safe.sendTransaction({ to: PROXY, data: before9.data! })).wait();
   const after9 = await planReconciliation(ethers.provider, PROXY, { expectedOwner: SAFE });
   ok("بعد المصالحة: check نظيف لكل رمز وaccountingFault = false", healthOf(after9).ok);
-  // لا unpause إلا إن نجح check بعد التنفيذ
-  if (healthOf(after9).ok) await (await (c.connect(safe) as any).unpause()).wait();
-  ok("unpause فقط بعد check ناجح", !(await c.paused()) && healthOf(after9).ok);
+  // B6-REC-03: الفتح فقط إن نجحت بوابة الجاهزية على أحدث كتلة (شبكة ومالك متوقعان)
+  const gate = await unpauseReadiness(ethers.provider, PROXY, { expectedOwner: SAFE });
+  if (gate.ready) await (await (c.connect(safe) as any).unpause()).wait();
+  ok(`unpause فقط بعد بوابة الجاهزية على أحدث كتلة (${gate.block})`, gate.ready && !(await c.paused()));
   let resumed = true; try { await (await offer(ethers.parseEther("0.01"))).wait(); } catch { resumed = false; }
   ok("بعد الفتح: إيداع جديد يمر والعدّاد يتابعه (check نظيف)",
     resumed && healthOf(await planReconciliation(ethers.provider, PROXY)).ok);

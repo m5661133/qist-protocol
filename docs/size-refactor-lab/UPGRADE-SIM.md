@@ -48,7 +48,7 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
 السكربت الجديد يستدعي `forceImport` بمصنع `MurabahaV6Build21` بعد التحقق أن كوده التنفيذي = الحي.
 (الذيل CBOR metadata يختلف لأن العقد أُعيدت تسميته في `legacy/b21`؛ الكود التنفيذي مطابق حرفياً.)
 
-## النتيجة (43/43 — القسم 9 يستخدم نواة scripts/reconcile-custody.ts، والفتح بعد check ناجح)
+## النتيجة (43/43 — القسم 9: نواة المصالحة، والفتح عبر بوابة الجاهزية على أحدث كتلة)
 
 ```
 🔱 محاكاة ترقية Build 21 → Build 22 — نسخة Base عند الكتلة 52091342
@@ -114,7 +114,7 @@ FORK_BLOCK=52091341 npx hardhat --config hardhat.fork.config.ts run scripts/prep
   ✅ reconcileCustody ترفض لقطة ناقصة
   ✅ verify على أحدث كتلة: البصمة (chainId+proxy+value+data) لم تتغيّر
   ✅ بعد المصالحة: check نظيف لكل رمز وaccountingFault = false
-  ✅ unpause فقط بعد check ناجح
+  ✅ unpause فقط بعد بوابة الجاهزية على أحدث كتلة (52091355)
   ✅ بعد الفتح: إيداع جديد يمر والعدّاد يتابعه (check نظيف)
 ═══ 43/43 ═══
 ✅ المحاكاة نجحت كاملة

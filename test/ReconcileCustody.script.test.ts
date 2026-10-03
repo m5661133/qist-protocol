@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { deployScenario, BTC, E, INTERVAL } from "./helpers/custodyScenario";
 import { linkedFactory, UPG } from "./helpers/linked";
-import { planReconciliation, verifyPlan, txFingerprint, healthOf } from "../scripts/custody-reconcile";
+import { planReconciliation, verifyPlan, txFingerprint, healthOf, unpauseReadiness, readinessOf } from "../scripts/custody-reconcile";
 
 /**
  * scripts/reconcile-custody.ts — النواة planReconciliation على عقد حقيقي (Harness يفرض الخلل).
@@ -142,6 +142,42 @@ describe("scripts/reconcile-custody — نواة المصالحة", () => {
     expect((await verifyPlan(ethers.provider, s.mAddr, onBase)).match).to.equal(false);
     expect((await verifyPlan(ethers.provider, s.mAddr, otherProxy)).match).to.equal(false);
     expect((await verifyPlan(ethers.provider, s.mAddr, p.fingerprint!)).match).to.equal(true);
+  });
+
+  it("B6-REC-03: بوابة الفتح على أحدث كتلة فقط — لقطة تاريخية سليمة لا تمنح إذناً", async () => {
+    const s = await setup(); await fault(s);
+    await s.h.connect(s.owner).pause();
+    await s.exec((await s.plan()).data!);                                // مصالحة ⇒ سليم وموقوف
+    const B = await ethers.provider.getBlockNumber();
+    const own = { expectedOwner: s.owner.address };
+    expect((await unpauseReadiness(ethers.provider, s.mAddr, own)).ready).to.equal(true);
+    await s.h.forceOfferCustody(s.wAddr, 1n);                             // انحراف لاحق
+    // الفحص التاريخي عند B ما زال «سليماً» — لذلك لا يصلح بوابةً
+    expect(healthOf(await s.plan({ blockTag: B })).ok).to.equal(true);
+    let refused = "";
+    try { await unpauseReadiness(ethers.provider, s.mAddr, { ...own, blockTag: B }); } catch (e: any) { refused = e.message; }
+    expect(refused).to.include("لا تقبل كتلة مثبّتة");
+    const now = await unpauseReadiness(ethers.provider, s.mAddr, own);
+    expect(now.ready).to.equal(false);
+    expect(now.block).to.be.greaterThan(B);
+    expect(now.reasons.join()).to.include("انحراف");
+  });
+
+  it("B6-REC-03: بوابة الفتح ترفض مالكاً أو شبكة غير متوقعين، وعقداً غير موقوف", async () => {
+    const s = await setup(); await fault(s);
+    await s.h.connect(s.owner).pause();
+    await s.exec((await s.plan()).data!);
+    const wrongOwner = await unpauseReadiness(ethers.provider, s.mAddr, { expectedOwner: s.stranger.address });
+    expect(wrongOwner.ready).to.equal(false);
+    expect(wrongOwner.reasons.join()).to.include("OWNER_MISMATCH");
+    const p = await s.plan();
+    expect(readinessOf(p).ready).to.equal(true);
+    const onOtherChain = { ...p, blockers: [...p.blockers, { code: "WRONG_CHAIN" as const, detail: "chainId 1" }] };
+    expect(readinessOf(onOtherChain).ready).to.equal(false);
+    await s.h.connect(s.owner).unpause();
+    const open = await unpauseReadiness(ethers.provider, s.mAddr, { expectedOwner: s.owner.address });
+    expect(open.ready).to.equal(false);
+    expect(open.reasons.join()).to.include("غير موقوف");
   });
 
   it("عجز فعلي (سحب يتجاوز المحاسبة) ⇒ INSOLVENT ولا calldata — تحقيق لا مصالحة", async () => {

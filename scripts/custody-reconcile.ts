@@ -170,3 +170,32 @@ export function healthOf(plan: Plan) {
   const insolvent = plan.rows.filter((r) => r.surplus < 0n);
   return { ok: !drift.length && !insolvent.length && !plan.accountingFault, drift, insolvent };
 }
+
+/**
+ * B6-REC-03: بوابة إعادة الفتح — على **أحدث كتلة فقط** وبشبكة ومالك متوقعين.
+ * الفحص التاريخي (BLOCK) للمراجعة وحدها ولا يمنح إذن فتح، لأن لقطة قديمة سليمة لا تقول شيئاً
+ * عن الحالة الآن. العقد لا يفرض هذا الفحص قبل unpause — هو إجراء تشغيلي على الموقّعين.
+ */
+export async function unpauseReadiness(
+  provider: ethers.Provider, proxy: string,
+  opts: { blockTag?: number; expectedOwner: string },
+) {
+  if (opts.blockTag !== undefined) throw new Error("⛔ بوابة الفتح لا تقبل كتلة مثبّتة — تفحص أحدث كتلة فقط");
+  if (!opts.expectedOwner) throw new Error("⛔ بوابة الفتح تحتاج المالك المتوقع");
+  const latest = await provider.getBlock("latest");
+  const plan = await planReconciliation(provider, proxy, { blockTag: latest!.number, expectedOwner: opts.expectedOwner });
+  return { ...readinessOf(plan), plan, block: latest!.number, timestamp: latest!.timestamp };
+}
+
+/** قرار الفتح من لقطة: حسابات سليمة + شبكة ومالك متوقعان + العقد موقوف فعلاً */
+export function readinessOf(plan: Plan) {
+  const h = healthOf(plan);
+  const reasons: string[] = [];
+  for (const b of plan.blockers) if (b.code === "WRONG_CHAIN" || b.code === "OWNER_MISMATCH") reasons.push(`${b.code}: ${b.detail}`);
+  if (h.drift.length) reasons.push(`انحراف في ${h.drift.length} رمز`);
+  if (h.insolvent.length) reasons.push(`عجز في ${h.insolvent.length} رمز`);
+  if (plan.accountingFault) reasons.push("accountingFault مرفوع");
+  if (!plan.paused) reasons.push("العقد غير موقوف أصلاً");
+  return { ready: reasons.length === 0, reasons, health: h };
+}
+

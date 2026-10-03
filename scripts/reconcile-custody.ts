@@ -2,8 +2,10 @@
  * reconcile-custody — مصالحة عدّادات العهدة (Build 22) بقيم يوقّعها الـSafe.
  *
  * الأوضاع (MODE):
- *   check  (افتراضي) مراقبة: العدّادات = الحالة؟ I2 سليمة؟ accountingFault؟ — لا يحتاج إيقافاً.
- *                    رمز خروج 1 عند أي انحراف (للتنبيه).
+ *   check  (افتراضي) مراقبة: العدّادات = الحالة؟ I2 سليمة؟ accountingFault؟ الشبكة والمالك؟ — لا يحتاج إيقافاً.
+ *                    رمز خروج 1 عند أي انحراف (للتنبيه). مع BLOCK: مراجعة تاريخية فقط، بلا أي إذن فتح.
+ *   ready  بوابة إعادة الفتح بعد المصالحة: أحدث كتلة فقط (BLOCK مرفوض) + شبكة ومالك متوقعان +
+ *          موقوف + حسابات سليمة. exit 0 = يجوز unpause. (B6-REC-03)
  *   plan   تجهيز المعاملة: يتطلب العقد موقوفاً. يطبع الفرق لكل رمز، ويحاكي الاستدعاء من المالك،
  *          ويطبع معاملة الـSafe وبصمتها، ويحفظ JSON في deployments/reconcile/ للمراجعة.
  *   verify قبل التنفيذ مباشرة (آخر موقّع): EXPECT_HASH=<بصمة plan> — يعيد الحساب على **أحدث كتلة**
@@ -12,7 +14,7 @@
  *
  *   MODE=plan npx hardhat run scripts/reconcile-custody.ts --network base
  *   MODE=verify EXPECT_HASH=0x… npx hardhat run scripts/reconcile-custody.ts --network base
- *   BLOCK=<رقم> لتثبيت كتلة اللقطة (plan/check فقط) — للمراجعة المستقلة لنفس الأرقام.
+ *   BLOCK=<رقم> لتثبيت كتلة اللقطة (plan/check فقط) — للمراجعة المستقلة لنفس الأرقام، لا لقرار التنفيذ أو الفتح.
  *
  * لا يرسل أي معاملة. التنفيذ يدوي من app.safe.global بتوقيعين.
  * docs/global-cap-design.md §4.1 · scripts/custody-reconcile.ts (النواة المختبرة)
@@ -21,7 +23,7 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { PROXY, EXPECTED_OWNER } from "./build22-upgrade";
-import { planReconciliation, verifyPlan, healthOf, Plan } from "./custody-reconcile";
+import { planReconciliation, verifyPlan, unpauseReadiness, readinessOf, Plan } from "./custody-reconcile";
 
 const NAMES: Record<string, string> = {
   [ethers.ZeroAddress]: "ETH",
@@ -58,9 +60,22 @@ async function main() {
       console.log("\n⛔ لا معاملة:"); for (const b of v.plan.blockers) console.log(`   ${b.code}: ${b.detail}`);
       process.exitCode = 1; return;
     }
-    console.log(v.match ? `\n✅ البصمة مطابقة ${v.plan.fingerprint} — نفّذ المعاملة الآن، ثم MODE=check قبل أي unpause`
+    console.log(v.match ? `\n✅ البصمة مطابقة ${v.plan.fingerprint} — نفّذ المعاملة الآن، ثم MODE=ready قبل أي unpause`
       : `\n🔴 البصمة تغيّرت: ${v.plan.fingerprint} ≠ ${want}\n   تغيّرت الحالة أو الشبكة أو العنوان — لا تنفّذ؛ أعد plan ووقّع المعاملة الجديدة`);
     if (!v.match) process.exitCode = 1;
+    return;
+  }
+
+  if (mode === "ready") {
+    // B6-REC-03: بوابة الفتح — أحدث كتلة فقط
+    if (blockTag !== undefined) throw new Error("⛔ ready لا يقبل BLOCK — بوابة الفتح تفحص أحدث كتلة فقط.");
+    const r = await unpauseReadiness(ethers.provider, proxy, { expectedOwner });
+    console.log(`🧮 بوابة إعادة الفتح — ${proxy} (chainId ${r.plan.chainId})`);
+    console.log(`  أحدث كتلة ${r.block} · ${new Date(r.timestamp * 1000).toISOString()}`);
+    printRows(r.plan);
+    console.log(r.ready ? "\n✅ جاهز: يجوز unpause من الـSafe الآن."
+      : `\n⛔ لا unpause:\n${r.reasons.map((x) => "   " + x).join("\n")}`);
+    if (!r.ready) process.exitCode = 1;
     return;
   }
 
@@ -70,11 +85,14 @@ async function main() {
   printRows(plan);
 
   if (mode === "check") {
-    const h = healthOf(plan);
-    console.log(h.ok ? "\n✅ العدّادات مطابقة للحالة، I2 سليمة، لا خلل محاسبي"
-      : `\n🔴 انحراف: ${h.drift.length} رمز · عجز: ${h.insolvent.length} · accountingFault ${plan.accountingFault}`);
-    if (plan.paused) console.log(h.ok ? "   العقد موقوف: يمكن unpause الآن." : "   ⛔ العقد موقوف: لا unpause — أعد plan/verify/تنفيذ حتى ينجح check.");
-    if (!h.ok) process.exitCode = 1;
+    const r = readinessOf(plan);
+    const env = plan.blockers.filter((b) => b.code === "WRONG_CHAIN" || b.code === "OWNER_MISMATCH");
+    const ok = r.health.ok && env.length === 0;
+    if (blockTag !== undefined) console.log(`  ⚠️ لقطة تاريخية (BLOCK=${blockTag}) — للمراجعة فقط، لا تصلح لقرار الفتح`);
+    console.log(ok ? "\n✅ العدّادات مطابقة للحالة، I2 سليمة، لا خلل محاسبي، الشبكة والمالك كما يُتوقع"
+      : `\n🔴 ${[...env.map((b) => b.code), r.health.drift.length ? `انحراف ${r.health.drift.length}` : "", r.health.insolvent.length ? `عجز ${r.health.insolvent.length}` : "", plan.accountingFault ? "accountingFault" : ""].filter(Boolean).join(" · ")}`);
+    if (plan.paused) console.log("   العقد موقوف — قرار الفتح عبر MODE=ready (أحدث كتلة) لا عبر check.");
+    if (!ok) process.exitCode = 1;
     return;
   }
 
@@ -97,7 +115,7 @@ async function main() {
   console.log(`محاكاة من المالك عند الكتلة ${plan.block}: ✅ نجحت`);
   console.log("قبل التنفيذ مباشرة (آخر موقّع):");
   console.log(`  MODE=verify EXPECT_HASH=${plan.fingerprint} npx hardhat run scripts/reconcile-custody.ts --network <الشبكة>   (بلا BLOCK)`);
-  console.log("بعد التنفيذ: MODE=check — ولا unpause من الـSafe إلا إن نجح (exit 0).");
+  console.log("بعد التنفيذ: MODE=ready (أحدث كتلة) — ولا unpause من الـSafe إلا إن نجح (exit 0).");
 
   const dir = path.join(__dirname, "../deployments/reconcile");
   fs.mkdirSync(dir, { recursive: true });
