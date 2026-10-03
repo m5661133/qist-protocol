@@ -105,16 +105,21 @@ ethers.parseUnits("100", 6)
 ## العناوين الحرجة (Base Mainnet)
 
 ```
-⏳ Build 21 جاهز ومنشور كـimplementation بانتظار تنفيذ الـSafe (2026-08-02):
-   Implementation: 0x0C0114d6A15BBa02a7ef89894462d52eE5F283A7  ← موثّق على Basescan، الـProxy لم يُرقَّ بعد
-   ⤷ KRAIT-001: emergencyWithdraw يحمي كل رمز سُجِّل يوماً (_everRegistered) لا الثلاثة المثبّتة
-   ⤷ + أحداث شفافية إدارية (ProtocolFeeSet/BrokerageFeeSet/BrokerTreasurySet/ProtocolTreasurySet)
-   ⤷ معاملة الـSafe: To=Proxy · Data=0x4f1ef2860000000000000000000000000c0114d6a15bba02a7ef89894462d52ee5f283a7
-                     00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000
-   ⤷ ⚠️ prepareUpgrade بعد forceImport يعيد العنوان القديم بلا نشر — استخدم scripts/prepare-upgrade-murabaha-safe.ts (ينشر مباشرةً ويقارن البايت-كود)
-
 Proxy (لا يتغير أبداً): 0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5
-Implementation (Build 19, 2026-07-16): 0xB775F07634aD5e673261eD5cE6a03924DC0A0816  ← النشط حالياً ✅
+Implementation (Build 22 / B6, 2026-10-03): 0x962DD7Ad2AaA80eFF2Ea303Ae7E901A0A39C5DE0  ← النشط حالياً ✅ (init v3)
+  ⤷ سقف العهدة: globalCap $20,000 · commitmentCap $15,000 · offerCap $5,000 (+ setLaunchCaps $4,000×5)
+  ⤷ مكتبات خارجية مربوطة (كلها موثّقة على Basescan):
+      CustodyLib      0xF52113C7094f59e09f01aff2425Aaadc270F5244
+      BuyLogic        0x2b307BdEBe421cb529c27736EC74143a7C1e9DDc
+      OfferLogic      0x550b8Cf91D9338d578D426BACB4e9653553037A4
+      AutomationLogic 0x9b459e5f6b1A5195f5Cc1f7e5B8C277D8Dc99AA3
+  ⤷ السجل ومعاملتا الترقية/الرجوع: deployments/build22-base.json · tag build22-deployed-src
+  ⤷ الترقية التالية: scripts/prepare-upgrade-build22-safe.ts (نمطه) — prepare-upgrade-murabaha-safe.ts متقاعد
+  ⤷ مراقبة العهدة: MODE=check npx hardhat run scripts/reconcile-custody.ts --network base (docs/RECONCILE.md)
+Implementation (Build 21, 2026-08-02): 0x0C0114d6A15BBa02a7ef89894462d52eE5F283A7  ← نقطة الرجوع (tag build21-live، docs/ROLLBACK.md)
+  ⤷ ⚠️ الرجوع ثم العودة لـBuild 22 = pause + upgrade + reconcile + MODE=ready + unpause
+  ⤷ KRAIT-001 (_everRegistered) + أحداث شفافية إدارية
+Implementation (Build 19, 2026-07-16): 0xB775F07634aD5e673261eD5cE6a03924DC0A0816  ← سابق
   ⤷ D-056: emergencyWithdraw يحظر ETH/USDC/cbBTC/أي مدعوم (CannotWithdrawUserAsset) — المالك لا يمسّ أموال المستخدمين
   ⤷ يسترجع الرموز الغريبة فقط → protocolTreasury (وجهة ثابتة) · verified ✅ · 139 اختبار · Safe nonce 7
 Implementation (Build 18, 2026-07-16): 0x99aD53759D0dffCC6b396831D40f96c86E2024C3  ← سابق
