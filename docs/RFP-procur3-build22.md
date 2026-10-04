@@ -11,7 +11,7 @@ Qist — Islamic Murabaha Protocol on Base: Focused Security Review of Build 22 
 Smart contract audits · Solidity
 
 ## Budget
-$1,500 (قابل للتفاوض حتى $2,000 للعرض الأقوى)
+$1,000 (قرار المالك 2026-10-04)
 
 ## Deadline (آخر موعد لاستقبال العروض)
 2026-10-18
