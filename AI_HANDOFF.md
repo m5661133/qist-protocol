@@ -51,7 +51,11 @@ docs/ · .audit/           ← تقارير تدقيق ومخرجات تحليل
 
 # Current State
 
-## MurabahaV6 Build 23 — جاهز في الفرع `build23`، **غير منشور** (2026-10-06)
+## MurabahaV6 Build 23 — **حيّ على Base** (2026-10-06)
+- **منشور ومُرقّى:** التنفيذ `0x420A2c01fe0B7DF55440227af78E7759f970B65B` · CustodyLib `0x5C1e24C7f83507a2064b91Aa9BbD7D5a39A83b9c`
+  (موثّقان على Basescan) · Safe nonce 10، معاملة `0x9abc84d4…bc63a` كتلة 52,258,241 · السجل `deployments/build23-base.json`.
+- **فحوص ما بعد الترقية ✅:** EIP-1967 = Build 23 · `pendingToken` = 0 · العروض 26 والمراكز 18 كما هي · غير موقوف ·
+  `MODE=check` نظيف (cbBTC 549707 = المستحق). نقطة الرجوع: Build 22 (`docs/ROLLBACK.md`).
 - **السبب:** تقرير `~/Desktop/مشاريع/ايجنت اسلامي/05_تقرير_ثغرة_قسط.md`، ثلاث ثغرات متوسطة مُثبتة على fork:
   F-1 بائع محظور في USDC يُفشل سداد المشتري · F-2 مشترٍ محظور في رمز الضمان يُعلّق المركز ·
   F-3 إيقاف أطول من 3 أيام يفرض تصفية جماعية عند الاستئناف.
@@ -73,8 +77,8 @@ docs/ · .audit/           ← تقارير تدقيق ومخرجات تحليل
   `upgradeToAndCall(impl, 0x)` بلا initializer. تجربة جافة على fork 52243172: **6/6** (الحالة محفوظة، reconcile سليم).
   **الرجوع لـBuild 22:** `upgradeToAndCall(0x962D…5DE0, 0x)` آمن للتخزين، لكن أي `pendingToken` قائم يصبح غير قابل للسحب
   حتى العودة لـBuild 23 — تحقّق أنه صفر قبل الرجوع.
-- **المتبقي:** النشر الفعلي بقرار المالك · `deployments/build23-base.json` · تحديث ABI التطبيق والموقع
-  (`withdrawToken`، `pendingToken`، `PayoutDeferred/Withdrawn`) وعرض «مستحقات معلّقة» · سجل `deployments/build23-base.json`.
+- **المتبقي:** رفع التطبيق (9b3263d) إلى TestFlight ونشر الموقع (d3c4b9df) — كلاهما يعرض «مستحقات محفوظة» · تحديث حزمة التدقيق لـBuild 23.
+  `custody-reconcile.ts` صار يعدّ المعلّق ERC20 مستحقاً (خانة `totalPendingToken` = 30) — اختبار في `Build23.test.ts`، Hardhat 205 ✅.
 
 ## منشور وحيّ على Base Mainnet
 - **BtcEscrowMurabaha Proxy:** `0x47Ce614E8D1EBd19d66f254c062bDDEA2F3e3103`

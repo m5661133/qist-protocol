@@ -38,7 +38,7 @@ git status --short
 npx hardhat test
 ```
 
-المتوقع: **204 ناجحة و5 معلّقة.**
+المتوقع: **205 ناجحة و5 معلّقة.**
 
 ```bash
 FORK_BLOCK=$(cast block-number --rpc-url https://mainnet.base.org) npx hardhat --config hardhat.fork.config.ts run scripts/prepare-upgrade-build23-safe.ts

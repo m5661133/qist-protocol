@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 
 /**
- * نواة مصالحة العهدة — Build 22 (docs/global-cap-design.md §4.1).
+ * نواة مصالحة العهدة — Build 22، ومنذ Build 23 تضمّ المعلّق ERC20 (docs/global-cap-design.md §4.1).
  * مستقلة عن hre: تأخذ provider وعنوان الـProxy، فتُختبر محلياً وتُشغَّل على Base بلا فرق.
  *
  * تحسب القيم الصحيحة من الحالة نفسها عند كتلة مثبّتة (نفس قاعدة CustodyLib.migrate):
@@ -38,7 +38,7 @@ export type Row = {
   token: string;
   counterOffer: bigint; counterCollateral: bigint;   // العدّادات الحالية على السلسلة
   offer: bigint; collateral: bigint;                 // الصحيحة من الحالة
-  pendingETH: bigint; balance: bigint; owed: bigint; // owed = offer + collateral (+ pendingETH لـETH)
+  pendingETH: bigint; balance: bigint; owed: bigint; // owed = offer + collateral + المعلّق (pendingETH لـETH، totalPendingToken لغيره)
   surplus: bigint;                                   // الرصيد − المستحق (تبرعات/فائض)؛ سالب = عجز
 };
 
@@ -68,6 +68,13 @@ export function txFingerprint(t: { chainId: bigint; to: string; value: bigint; d
 }
 
 const ETH = ethers.ZeroAddress;
+
+/** Build 23: totalPendingToken (mapping internal، الخانة 30 — forge inspect). قبل Build 23 الخانة صفر فالقراءة 0. */
+export const TOTAL_PENDING_TOKEN_SLOT = 30n;
+export async function totalPendingToken(provider: ethers.Provider, proxy: string, token: string, blockTag?: number) {
+  const slot = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [token, TOTAL_PENDING_TOKEN_SLOT]));
+  return BigInt(await provider.getStorage(proxy, slot, blockTag));
+}
 
 export function reconcileCalldata(rows: Pick<Row, "token" | "offer" | "collateral">[]) {
   return new ethers.Interface(RECONCILE_ABI).encodeFunctionData("reconcileCustody", [
@@ -105,7 +112,7 @@ export async function planReconciliation(
   const rows: Row[] = [];
   for (const t of tokens) {
     const balance: bigint = t === ETH ? await provider.getBalance(proxy, block) : await erc20(t).balanceOf(proxy, o);
-    const p = t === ETH ? (pending as bigint) : 0n;
+    const p = t === ETH ? (pending as bigint) : await totalPendingToken(provider, proxy, t, block);
     const owed = offer.get(t)! + col.get(t)! + p;
     rows.push({
       token: t,

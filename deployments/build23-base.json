@@ -1,0 +1,44 @@
+{
+  "network": "base",
+  "chainId": 8453,
+  "date": "2026-10-06",
+  "proxy": "0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5",
+  "owner": "0x64D738021BAe4cb9a7fd82529C2F94f61d404064",
+  "source": { "tag": "build23-deployed-src", "branch": "build23" },
+  "build23": {
+    "implementation": "0x420A2c01fe0B7DF55440227af78E7759f970B65B",
+    "codehash": "0xc27dfc5a5c3bb80b15ea330a2737a185f10a816078c45312bb3127006867361e",
+    "initVersion": 3,
+    "libraries": {
+      "CustodyLib": "0x5C1e24C7f83507a2064b91Aa9BbD7D5a39A83b9c",
+      "BuyLogic": "0x2b307BdEBe421cb529c27736EC74143a7C1e9DDc",
+      "OfferLogic": "0x550b8Cf91D9338d578D426BACB4e9653553037A4",
+      "AutomationLogic": "0x9b459e5f6b1A5195f5Cc1f7e5B8C277D8Dc99AA3"
+    },
+    "basescanVerified": true,
+    "safeTx": {
+      "nonce": 10,
+      "to": "0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5",
+      "value": "0",
+      "data": "0x4f1ef286000000000000000000000000420a2c01fe0b7df55440227af78e7759f970b65b00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "executionTx": "0x9abc84d4d113c9a85b9d1bfc2436bee0d45cd463a09f8edd52ce82fbaefbc63a",
+      "block": 52258241
+    },
+    "postChecks": {
+      "nextOfferId": 26,
+      "nextPositionId": 18,
+      "paused": false,
+      "pendingToken_USDC_owner": "0",
+      "reconcile": "clean (cbBTC 549707 = owed)"
+    }
+  },
+  "rollback": {
+    "build22": {
+      "implementation": "0x962DD7Ad2AaA80eFF2Ea303Ae7E901A0A39C5DE0",
+      "codehash": "0x0f2e85eea4043e8d98c00a7721af780bca5b47e9ea1a2e6174cfabb95751ff81",
+      "tag": "build22-deployed-src",
+      "safeTx": { "to": "0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5", "value": "0", "data": "upgradeToAndCall(0x962DD7Ad2AaA80eFF2Ea303Ae7E901A0A39C5DE0, 0x)" },
+      "note": "docs/ROLLBACK.md — آمن للتخزين؛ تحقّق أن لا pendingToken قائم (PayoutDeferred − PayoutWithdrawn = 0) قبل الرجوع"
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { deployScenario, U, BTC, INTERVAL, GRACE, BTC_FEED } from "./helpers/custodyScenario";
 import { linkedFactory, withLibErrors } from "./helpers/linked";
+import { planReconciliation, healthOf, totalPendingToken } from "../scripts/custody-reconcile";
 
 /**
  * Build 23 — اختبارات انحدار لثغرات تقرير «ايجنت اسلامي/05_تقرير_ثغرة_قسط.md»:
@@ -162,6 +163,20 @@ describe("Build 23 — R-1 (أرسل، وإن فشل فسجّل) + R-2 (مهلة
       await c.m.forceDrain(c.uAddr, c.stranger.address, 1n);
       await expect(c.m.connect(c.seller2).createOffer(c.wAddr, c.wAddr, c.uAddr, BTC(0.01), 1000, 1, 12, INTERVAL, 0, 12000, false))
         .to.be.revertedWithCustomError(c.g, "CustodyInsolvent");
+    });
+
+    it("سكربت المصالحة يعدّ USDC المعلّق مستحقاً (الخانة 30) لا فائضاً", async () => {
+      const c = await deploy();
+      await c.usdc.blacklist(c.seller.address);
+      const amt = await c.m.getInstallmentAmount(c.pid);
+      await c.m.connect(c.buyer).payInstallment(c.pid);
+      const proxy = await c.m.getAddress();
+      expect(await totalPendingToken(ethers.provider, proxy, c.uAddr)).to.equal(amt);
+      const p = await planReconciliation(ethers.provider, proxy);
+      const row = p.rows.find((r) => r.token === c.uAddr)!;
+      expect(row.owed).to.equal(amt);
+      expect(row.surplus).to.equal(0n);
+      expect(healthOf(p).ok).to.equal(true);
     });
   });
 });
