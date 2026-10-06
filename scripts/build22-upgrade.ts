@@ -46,7 +46,7 @@ export async function preflight() {
 }
 
 /** artifact مربوط: يستبدل placeholders المكتبات بعناوينها */
-function linkBytecode(art: any, libs: Record<string, string>) {
+export function linkBytecode(art: any, libs: Record<string, string>) {
   let code = strip(art.deployedBytecode);
   for (const file of Object.keys(art.deployedLinkReferences ?? {}))
     for (const name of Object.keys(art.deployedLinkReferences[file]))
@@ -56,7 +56,7 @@ function linkBytecode(art: any, libs: Record<string, string>) {
 }
 
 /** يقارن كوداً منشوراً بالـartifact بعد تصفير عنوان العقد نفسه (UUPS __self / حماية استدعاء المكتبة) */
-async function assertCodeMatches(label: string, addr: string, expected: string) {
+export async function assertCodeMatches(label: string, addr: string, expected: string) {
   // RPC العام قد يعيد كوداً فارغاً لحظة بعد النشر (عُقد متعددة خلفه) — ننتظر ظهوره قبل المقارنة
   let onchain = strip(await ethers.provider.getCode(addr));
   for (let i = 0; i < 20 && onchain.length === 0; i++) {

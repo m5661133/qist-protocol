@@ -68,7 +68,12 @@ docs/ · .audit/           ← تقارير تدقيق ومخرجات تحليل
   `test/foundry/Build23Fork.t.sol` ترقية الـProxy الحي على fork بانتحال الـSafe ⇒ الحالة محفوظة وF-1/F-2/F-3 مُصلحة ✅ ·
   Aderyn بلا تغيير · Slither +3 `reentrancy-eth` (نفس نمط `_settleByCollateral` المقبول في Build 22: تحويلان متتاليان
   تحت `nonReentrant`، وفرع ETH غير قابل للوصول لأن رمز الدفع ستابل دائماً).
-- **المتبقي:** سكربت ترقية Safe (نمط `prepare-upgrade-build22-safe.ts` + CustodyLib جديدة) · تحديث ABI التطبيق والموقع
+- **سكربت الترقية:** `scripts/prepare-upgrade-build23-safe.ts` (+ `build23-upgrade.ts`، مرجع `contracts/legacy/b22`).
+  ينشر CustodyLib جديدة فقط، ويعيد BuyLogic/OfferLogic/AutomationLogic الحية بعد مطابقة كودها. المعاملة:
+  `upgradeToAndCall(impl, 0x)` بلا initializer. تجربة جافة على fork 52243172: **6/6** (الحالة محفوظة، reconcile سليم).
+  **الرجوع لـBuild 22:** `upgradeToAndCall(0x962D…5DE0, 0x)` آمن للتخزين، لكن أي `pendingToken` قائم يصبح غير قابل للسحب
+  حتى العودة لـBuild 23 — تحقّق أنه صفر قبل الرجوع.
+- **المتبقي:** النشر الفعلي بقرار المالك · `deployments/build23-base.json` · تحديث ABI التطبيق والموقع
   (`withdrawToken`، `pendingToken`، `PayoutDeferred/Withdrawn`) وعرض «مستحقات معلّقة» · سجل `deployments/build23-base.json`.
 
 ## منشور وحيّ على Base Mainnet
