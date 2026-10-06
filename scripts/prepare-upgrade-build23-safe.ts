@@ -74,8 +74,12 @@ async function main() {
   const rc = await (await (await ethers.getSigner(pf.owner)).sendTransaction({ to: PROXY, value: 0n, data })).wait();
   ok(`التنفيذ من الـSafe نجح (غاز ${rc!.gasUsed})`, rc!.status === 1);
   ok("التنفيذ = Build 23 · التهيئة باقية 3 (بلا initializer)", (await proxyImpl()) === implAddr.toLowerCase() && (await proxyInitVersion()) === 3n);
-  ok("العروض والمراكز والمالك والإيقاف والحدود والعهدة والحارس والمنفّذ ورصيد ETH كما هي",
-    JSON.stringify(before) === JSON.stringify(await snap()));
+  const after = await snap();
+  const names = ["nextOfferId", "nextPositionId", "owner", "paused", "globalCap", "commitmentCap", "offerCap",
+    "totalExposureUSDC", "guardian", "keeper", "activePositions", "accountingFault", "ETH balance"];
+  const diff = names.filter((_, i) => before[i] !== after[i]).map((n) => `${n}: ${before[names.indexOf(n)]} → ${after[names.indexOf(n)]}`);
+  ok("العروض والمراكز والمالك والإيقاف والحدود والعهدة والحارس والمنفّذ ورصيد ETH كما هي", diff.length === 0);
+  if (diff.length) console.log("     اختلف:", diff.join(" · "));
   const p = await planReconciliation(ethers.provider, PROXY, { expectedOwner: pf.owner });
   ok("العدّادات = الحالة لكل رمز، I2 سليمة، لا خلل (reconcile check)", healthOf(p).ok);
   const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
