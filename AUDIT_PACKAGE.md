@@ -2,9 +2,11 @@
 
 > **Prepared for an independent security auditor.** Everything needed to begin immediately: scope, architecture, threat model, trust assumptions, known findings, and the Islamic-finance invariants that make this protocol unusual. Please read §7 (Shariah invariants) — several "bugs" a generic auditor might flag are intentional and religiously required.
 
-**Updated:** 2026-10-03 · **Version under review:** Build 22 (live) · **Source commit:** tag `build22-deployed-src` (`c971531`) — bytecode-identical to the deployed implementation · **Language:** Solidity 0.8.22 (viaIR, optimizer 200, evm: paris)
+**Updated:** 2026-10-06 · **Version under review:** Build 23 (live since 2026-10-06) · **Source commit:** tag `build23-deployed-src` (`5b4903b`) — bytecode-identical to the deployed implementation · **Language:** Solidity 0.8.22 (viaIR, optimizer 200, evm: paris)
 
 > **What changed since the July package (Build 18/19):** Build 20 (launch caps), Build 21 (KRAIT-001 fix + admin events), and **Build 22** — a global custody cap with per-token custody accounting, an accounting-fault circuit breaker, a Safe-signed reconciliation path, and a split of logic into **four external linked libraries** to stay under EIP-170. Scope grew from ~900 to **~1,270 nSLOC**.
+>
+> **Build 23 (2026-10-06, +29 nSLOC → ~1,296):** fixes three Medium issues found internally (F-1/F-2/F-3, see §8). **R-1 push-or-credit:** ERC20 payouts use `trySafeTransfer`; on failure (e.g. USDC/cbBTC blacklist) the amount is credited to `pendingToken[token][to]` and counted in `totalPendingToken[token]`, which `CustodyLib` now includes in owed/exposure (I2); the recipient pulls it with `withdrawToken(token)`. **R-2:** `unpause` records `lastUnpauseAt`; overdue = `now > max(nextDueDate, lastUnpauseAt) + GRACE`. **CEI** in `earlyRepayCash`. Three variables appended at slots 29–31; no initializer; only `CustodyLib` was redeployed. Diff vs Build 22: `contracts/legacy/b22/`.
 
 ---
 
@@ -21,8 +23,8 @@ This is **not** a lending pool. There is no interest, no rehypothecation, no poo
 | Contract | Address | Notes |
 |----------|---------|-------|
 | **Proxy** (audit target, immutable) | `0xb2275E4aA2724D875a1a00206b40dD0fF188DEd5` | ERC1967 UUPS, verified |
-| **Implementation** (Build 22) | `0x962DD7Ad2AaA80eFF2Ea303Ae7E901A0A39C5DE0` | verified · active since 2026-10-03 · init version 3 |
-| CustodyLib (external, linked) | `0xF52113C7094f59e09f01aff2425Aaadc270F5244` | verified |
+| **Implementation** (Build 23) | `0x420A2c01fe0B7DF55440227af78E7759f970B65B` | verified · active since 2026-10-06 · init version 3 |
+| CustodyLib (external, linked) | `0x5C1e24C7f83507a2064b91Aa9BbD7D5a39A83b9c` | verified · new in Build 23 (signature changed) |
 | BuyLogic (external, linked) | `0x2b307BdEBe421cb529c27736EC74143a7C1e9DDc` | verified |
 | OfferLogic (external, linked) | `0x550b8Cf91D9338d578D426BACB4e9653553037A4` | verified |
 | AutomationLogic (external, linked) | `0x9b459e5f6b1A5195f5Cc1f7e5B8C277D8Dc99AA3` | verified |
@@ -32,7 +34,7 @@ This is **not** a lending pool. There is no interest, no rehypothecation, no poo
 | USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | payment token, 6 decimals |
 | cbBTC | `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf` | 8 decimals (storage var is named `wbtc` — it points to cbBTC) |
 | Chainlink L2 Sequencer feed | `0xBCF85224fc0756B9Fa45aA7892530B47e10b6433` | uptime guard |
-| Previous impl (Build 21, rollback target) | `0x0C0114d6A15BBa02a7ef89894462d52eE5F283A7` | see `docs/ROLLBACK.md` |
+| Previous impl (Build 22, rollback target) | `0x962DD7Ad2AaA80eFF2Ea303Ae7E901A0A39C5DE0` | see `docs/ROLLBACK.md` |
 
 **Live state (2026-10-03):** guarded launch. Total custody ≈ **$480** (2 open offers, 0 active positions, 18 positions historically). Caps in force:
 
@@ -52,9 +54,9 @@ nSLOC = non-blank, non-comment lines (comments are partly Arabic).
 
 | File | nSLOC | Priority |
 |------|------:|----------|
-| `contracts/MurabahaV6.sol` | 695 | **Critical** — entry points, state, cap enforcement, liquidation, admin |
+| `contracts/MurabahaV6.sol` | 704 | **Critical** — entry points, state, cap enforcement, liquidation, admin |
 | `contracts/libraries/BuyLogic.sol` (external) | 125 | **Critical** — purchase quote, fees, position record |
-| `contracts/libraries/CustodyLib.sol` (external) | 108 | **Critical** — exposure, solvency (I2), migration, reconciliation |
+| `contracts/libraries/CustodyLib.sol` (external) | 128 | **Critical** — exposure, solvency (I2), migration, reconciliation, pending-token withdrawal |
 | `contracts/libraries/MurabahaMath.sol` | 50 | **Critical** — installment / profit / debt math |
 | `contracts/libraries/OfferLogic.sol` (external) | 47 | **High** — offer validation + record |
 | `contracts/libraries/AutomationLogic.sol` (external) | 45 | **High** — `checkUpkeep` selection, liquidatability |
@@ -64,12 +66,12 @@ nSLOC = non-blank, non-comment lines (comments are partly Arabic).
 | `contracts/libraries/MurabahaTypes.sol` | 41 | Medium — structs/enums shared with libraries |
 | `contracts/libraries/Errors.sol` | 45 | Info |
 | `contracts/interfaces/IChainlinkFeed.sol` | 11 | Info |
-| **Total** | **~1,267** | |
+| **Total** | **~1,296** | |
 | `contracts/QistTimelock.sol` | 10 | Optional — **not deployed** |
 
-**Out of scope:** `contracts/Mocks.sol`, `contracts/MurabahaV6Baseline.sol` (pre-refactor reference used for behavioural diffing), `contracts/legacy/` (Build 21 source for upgrade validation), `contracts/test/`, `scripts/`, `test/`, frontend/mobile, OpenZeppelin v5 upgradeable bases (assumed correct).
+**Out of scope:** `contracts/Mocks.sol`, `contracts/MurabahaV6Baseline.sol` (pre-refactor reference used for behavioural diffing), `contracts/legacy/` (Build 21/22 sources for upgrade validation), `contracts/test/`, `scripts/`, `test/`, frontend/mobile, OpenZeppelin v5 upgradeable bases (assumed correct).
 
-**Build:** `npm install && npx hardhat compile`. Implementation size 23,740 bytes (836 below EIP-170). Libraries are linked with `unsafeAllowLinkedLibraries`; deploy/link code is in `scripts/build22-upgrade.ts`.
+**Build:** `npm install && npx hardhat compile`. Implementation size 24,194 bytes (382 below EIP-170). Libraries are linked with `unsafeAllowLinkedLibraries`; deploy/link code is in `scripts/build22-upgrade.ts` and `scripts/build23-upgrade.ts`.
 
 ---
 
@@ -202,6 +204,9 @@ Internal reviews: automated tools (Slither, Aderyn, Krait), multi-model AI revie
 | GPT-09 | Med | ✅ Build 22 | Disabling a token blocks buys from existing offers in that token |
 | GPT-13/14 | Med | ✅ Build 22 | `checkUpkeep` isolates per-position pricing failures; no auto-liquidation proposed when collateral cannot be priced; installment remainders collected |
 | CAP-V2-01..02, CAP-V3-01..03 | Design | ✅ Build 22 | Zero-value semantics, `initializeV3` access isolation, invariant failures not swallowed in fuzzing, coverage gaps |
+| F-1 | Med | ✅ Build 23 | Seller blacklisted in USDC made the buyer's installment revert → buyer liquidated despite paying. Now credited to `pendingToken` |
+| F-2 | Med | ✅ Build 23 | Buyer blacklisted in the collateral token froze the position (no completion, no liquidation). Collateral now credited |
+| F-3 | Med | ✅ Build 23 | A pause longer than GRACE forced mass liquidation at unpause. Grace now restarts at `lastUnpauseAt` (price-based liquidation stays immediate) |
 | B6-UPG-01/02 | Process | ✅ | Upgrade preflight checks current implementation; cap tests distinguish 15k vs 20k |
 | B6-REC-01..03 | Process | ✅ | Reconciliation verify/ready only on latest block; fingerprint binds chain/proxy/value/data |
 | L-01 | Low | Open | 105% threshold is tight; non-recourse → possible bad debt in a sharp crash |
@@ -212,7 +217,9 @@ Internal reviews: automated tools (Slither, Aderyn, Krait), multi-model AI revie
 
 **Accepted limitations of the cap (documented in `docs/global-cap-design.md` §9):** checked at entry only (price rises can push exposure above the cap); unlimited USDC approvals in wallets are outside the cap; I2 halts deposits after an exploit but does not recover funds; capacity squatting by unsold offers is bounded by `offerCap` only.
 
-**Pause semantics (please review):** while paused, `cancelOffer`, `decreaseOffer` and `withdrawETH` remain open; installment payments, early repayment, collateral changes, automation and public liquidation are `whenNotPaused`. `reconcileCustody` and `emergencyWithdraw` require pause. We would value your view on whether more exits should stay open during a pause.
+**Build 23 questions:** is crediting instead of reverting safe in every payout path (`_deliverToken`)? Can `totalPendingToken` drift from the sum of `pendingToken`? Note Slither reports +3 `reentrancy-eth` in Build 23 — the same two-transfers-under-`nonReentrant` pattern accepted in `_settleByCollateral`; the ETH branch is unreachable because the payment token is always a stablecoin.
+
+**Pause semantics (please review):** while paused, `cancelOffer`, `decreaseOffer`, `withdrawETH` and `withdrawToken` remain open; installment payments, early repayment, collateral changes, automation and public liquidation are `whenNotPaused`. `reconcileCustody` and `emergencyWithdraw` require pause. We would value your view on whether more exits should stay open during a pause.
 
 ---
 
@@ -220,13 +227,15 @@ Internal reviews: automated tools (Slither, Aderyn, Krait), multi-model AI revie
 
 | Suite | Result | How |
 |---|---|---|
-| Hardhat unit/integration | **192 passing** | `npx hardhat test` |
+| Hardhat unit/integration | **205 passing** (incl. `test/Build23.test.ts` 13) | `npx hardhat test` |
 | Foundry invariants (incl. I7, I8, capped campaign) | **22/22**; mutations caught | `forge test` — `docs/size-refactor-lab/FOUNDRY.md` |
 | Behavioural diff vs pre-refactor baseline | 799 identical events | `docs/size-refactor-lab/REPORT.md`, `REPRODUCE.md` |
 | Fork simulation of the upgrade on Base | **43/43** | `scripts/fork-upgrade-build22.ts` — `UPGRADE-SIM.md` |
 | Exact Safe transaction simulated before signing | 9/9 | `scripts/simulate-safe-upgrade.ts` |
 | Reconciliation scripts | 13 tests | `test/ReconcileCustody.script.test.ts` |
-| Storage layout | validated against Build 21 | OZ `validateUpgrade` |
+| Build 23 upgrade on a Base fork (live Proxy, impersonated Safe) | F-1/F-2/F-3 fixed, state preserved | `test/foundry/Build23Fork.t.sol` (`--evm-version cancun`) |
+| Build 23 deployed contracts re-verified before signing | 6/6 | `scripts/prepare-upgrade-build23-safe.ts` — `docs/BUILD23-SAFE-UPGRADE.md` |
+| Storage layout | validated against Build 22 (live) | OZ `validateUpgrade` |
 
 Static analysis: `تحليل-ساكن-Slither-Aderyn-2026-07-22.md` and `.audit/krait-report.md` (no confirmed Critical/High after triage).
 
@@ -245,7 +254,7 @@ Static analysis: `تحليل-ساكن-Slither-Aderyn-2026-07-22.md` and `.audit/
 ## 11. Deliverables requested
 
 1. Findings report (Critical→Info) with exploit scenario and suggested fix.
-2. Confirmation or refutation of the fixes in §8, with emphasis on the Build 22 custody/cap logic.
+2. Confirmation or refutation of the fixes in §8, with emphasis on the Build 22 custody/cap logic and the Build 23 push-or-credit payouts.
 3. Opinion on pause semantics and on the timelock as a prerequisite for raising caps.
 4. One re-review round of our fixes.
 
