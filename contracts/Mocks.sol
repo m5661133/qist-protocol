@@ -3,13 +3,24 @@ pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract MockUSDC is ERC20 {
+/// @dev Build 23: محاكاة حظر Circle/Coinbase (Blacklistable) — لا أثر ما لم يُحظر عنوان صراحةً
+abstract contract MockBlacklistable is ERC20 {
+    mapping(address => bool) public isBlacklisted;
+    function blacklist(address a) external { isBlacklisted[a] = true; }
+    function unBlacklist(address a) external { isBlacklisted[a] = false; }
+    function _update(address from, address to, uint256 value) internal override {
+        require(!isBlacklisted[from] && !isBlacklisted[to], "Blacklistable: account is blacklisted");
+        super._update(from, to, value);
+    }
+}
+
+contract MockUSDC is MockBlacklistable {
     constructor() ERC20("Mock USDC", "USDC") {}
     function decimals() public pure override returns (uint8) { return 6; }
     function mint(address to, uint256 amt) external { _mint(to, amt); }
 }
 
-contract MockWBTC is ERC20 {
+contract MockWBTC is MockBlacklistable {
     constructor() ERC20("Mock WBTC", "WBTC") {}
     function decimals() public pure override returns (uint8) { return 8; }
     function mint(address to, uint256 amt) external { _mint(to, amt); }

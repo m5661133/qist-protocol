@@ -139,6 +139,9 @@ contract MurabahaV6Baseline is
     /// @dev سقف صحة المركز لإضافة ضمان داخل احتياطي الإنقاذ (150%) — إنقاذ لا ركن
     uint16 public constant RESCUE_HF_BPS = 15000;
 
+    /// @dev Build 23: نسخة اختبار تاريخية — جدول فارغ دائماً لتوافق توقيع CustodyLib الجديد (السلوك مطابق)
+    mapping(address => uint256) private _noPendingToken;
+
     // ═══════════ Events ═══════════
 
     event TokenAdded(address indexed token, address indexed feed, uint8 decimals, bool isStablecoin);
@@ -997,12 +1000,12 @@ contract MurabahaV6Baseline is
 
     function _exposure(bool offersOnly) internal view returns (uint256) {
         return CustodyLib.exposure(offerCustody, collateralCustody, tokenList, tokenConfigs,
-            totalPendingETH, sequencerUptimeFeed, offersOnly);
+            totalPendingETH, _noPendingToken, sequencerUptimeFeed, offersOnly);
     }
 
     /// @notice رصيد غير متتبَّع (تبرّعات/إرسال خاطئ) — للمراقبة فقط، لا يدخل السقف
     function untrackedBalance(address token) external view returns (uint256) {
-        return CustodyLib.untracked(offerCustody, collateralCustody, token, totalPendingETH);
+        return CustodyLib.untracked(offerCustody, collateralCustody, token, totalPendingETH, _noPendingToken);
     }
 
     /// @dev يُستدعى في **نهاية** دوال الإيداع فقط — الخروج لا يُفحص أبداً.
@@ -1010,7 +1013,7 @@ contract MurabahaV6Baseline is
     function _enforceCap(uint8 kind) internal view returns (uint256 exp) {
         if (accountingFault) revert Errors.AccountingFault();
         // I2 — قاطع دائرة إن سُحبت أموال بتجاوز المحاسبة
-        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH);
+        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH, _noPendingToken);
         uint256 g = globalCapUSDC;
         if (g == 0) return 0;
         exp = _exposure(false);
@@ -1048,7 +1051,7 @@ contract MurabahaV6Baseline is
         uint256[] calldata offerValues,
         uint256[] calldata collateralValues
     ) external onlyOwner whenPaused {
-        CustodyLib.reconcile(offerCustody, collateralCustody, tokenList, totalPendingETH,
+        CustodyLib.reconcile(offerCustody, collateralCustody, tokenList, totalPendingETH, _noPendingToken,
             tokens, offerValues, collateralValues);
         accountingFault = false;
     }
@@ -1061,7 +1064,7 @@ contract MurabahaV6Baseline is
     {
         CustodyLib.migrate(offerCustody, collateralCustody, tokenList, offers, nextOfferId,
             positions, _activePositionIds);
-        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH);
+        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH, _noPendingToken);
         _setCustodyCaps(globalCap, commitmentCap, offerCap);
     }
 

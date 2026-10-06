@@ -51,6 +51,26 @@ docs/ · .audit/           ← تقارير تدقيق ومخرجات تحليل
 
 # Current State
 
+## MurabahaV6 Build 23 — جاهز في الفرع `build23`، **غير منشور** (2026-10-06)
+- **السبب:** تقرير `~/Desktop/مشاريع/ايجنت اسلامي/05_تقرير_ثغرة_قسط.md`، ثلاث ثغرات متوسطة مُثبتة على fork:
+  F-1 بائع محظور في USDC يُفشل سداد المشتري · F-2 مشترٍ محظور في رمز الضمان يُعلّق المركز ·
+  F-3 إيقاف أطول من 3 أيام يفرض تصفية جماعية عند الاستئناف.
+- **R-1:** `_deliverToken` لـERC20 = `trySafeTransfer`، وإن فشل ⇒ `pendingToken[token][to]` + `totalPendingToken`
+  + `PayoutDeferred`. السحب `withdrawToken(token)` لصاحبه فقط (منطقه في `CustodyLib.withdrawPending`).
+  دفعتا البائع (`_chargeInstallment`، `earlyRepayCash`) صارتا عبر `_deliverToken`.
+  `CustodyLib._owed` يضمّ المعلّق ⇒ **CustodyLib جديدة تُنشر وتُربط** (BuyLogic/OfferLogic/AutomationLogic كما هي).
+- **R-2:** `unpause` يسجّل `lastUnpauseAt`؛ التأخّر = `now > max(nextDueDate, lastUnpauseAt) + GRACE`.
+  `liquidatePositionPublic` يستدعي `isLiquidatable` (لا تكرار). تصفية هبوط السعر فورية كما هي.
+- **إضافي:** `earlyRepayCash` صار CEI (الحالة قبل التحويلات).
+- **التخزين:** 31 متغيراً كما هي + 3 في النهاية (slots 29–31) — مُتحقق بـ`forge inspect`. بلا initializer.
+- **الحجم:** MurabahaV6 = 24,194 (هامش 382) · الحاضنة 24,526 (هامش 50) — `totalPendingToken` و`lastUnpauseAt` internal لهذا.
+- **التحقق:** Hardhat 204 ✅ (منها `test/Build23.test.ts` 12، تفشل 10 منها على Build 22) · Foundry invariants 22 ✅ ·
+  `test/foundry/Build23Fork.t.sol` ترقية الـProxy الحي على fork بانتحال الـSafe ⇒ الحالة محفوظة وF-1/F-2/F-3 مُصلحة ✅ ·
+  Aderyn بلا تغيير · Slither +3 `reentrancy-eth` (نفس نمط `_settleByCollateral` المقبول في Build 22: تحويلان متتاليان
+  تحت `nonReentrant`، وفرع ETH غير قابل للوصول لأن رمز الدفع ستابل دائماً).
+- **المتبقي:** سكربت ترقية Safe (نمط `prepare-upgrade-build22-safe.ts` + CustodyLib جديدة) · تحديث ABI التطبيق والموقع
+  (`withdrawToken`، `pendingToken`، `PayoutDeferred/Withdrawn`) وعرض «مستحقات معلّقة» · سجل `deployments/build23-base.json`.
+
 ## منشور وحيّ على Base Mainnet
 - **BtcEscrowMurabaha Proxy:** `0x47Ce614E8D1EBd19d66f254c062bDDEA2F3e3103`
 - **المالك/الناشر:** `0xef6F0C01C1f61a798923Baf57eb515f45d68c2e4`

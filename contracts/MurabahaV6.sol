@@ -143,6 +143,16 @@ contract MurabahaV6 is
     /// @dev سقف صحة المركز لإضافة ضمان داخل احتياطي الإنقاذ (150%) — إنقاذ لا ركن
     uint16 internal constant RESCUE_HF_BPS = 15000;
 
+    // ═══════════ Build 23 — مُلحَق أخيراً (آمن للتخزين) ═══════════
+    /// @dev R-1: مستحقات ERC20 تعذّر إرسالها (مستلم محظور) — يسحبها صاحبها بـ withdrawToken
+    mapping(address => mapping(address => uint256)) public pendingToken; // token => account => amount
+    /// @dev R-1: مجموع المعلّق لكل رمز — يدخل المُدان به في CustodyLib (I2 والسقف).
+    ///      internal (حدّ الحجم): خارج السلسلة = Σ PayoutDeferred − Σ PayoutWithdrawn
+    mapping(address => uint256) internal totalPendingToken;
+    /// @dev R-2: لحظة آخر استئناف — مهلة التأخّر لا تبدأ قبلها.
+    ///      internal (حدّ الحجم): خارج السلسلة = طابع كتلة آخر حدث Unpaused
+    uint256 internal lastUnpauseAt;
+
     // ═══════════ Events ═══════════
 
     event TokenAdded(address indexed token, address indexed feed, uint8 decimals, bool isStablecoin);
@@ -168,6 +178,8 @@ contract MurabahaV6 is
     event CustodyCapsSet(uint256 globalCapUSDC, uint256 commitmentCapUSDC, uint256 offerCapUSDC); // Build 22
     event AccountingFaultDetected(address indexed token, uint256 had, uint256 removed);         // Build 22
     event TokenFeedChanged(address indexed token, address oldFeed, address newFeed);            // Build 22
+    event PayoutDeferred(address indexed token, address indexed to, uint256 amount);  // Build 23 R-1
+    event PayoutWithdrawn(address indexed token, address indexed to, uint256 amount); // Build 23 R-1
     event UpkeepFailed(uint256 indexed positionId, bytes reason);
     event EmergencyWithdrawn(address indexed token, address indexed to, uint256 amount);
     event ProtocolFeeSet(uint16 oldBps, uint16 newBps);            // شفافية إدارية (Slither/Aderyn L-9)
@@ -562,7 +574,7 @@ contract MurabahaV6 is
         }
 
         IERC20(paymentToken).safeTransferFrom(payer, address(this), amount + autoFee);
-        IERC20(paymentToken).safeTransfer(seller, amount);
+        _deliverToken(paymentToken, seller, amount); // Build 23 R-1 (F-1): بائع محظور لا يُفشل السداد
         if (autoFee > 0) {
             IERC20(paymentToken).safeTransfer(protocolTreasury, autoFee);
             emit AutoFeeCollected(positionId, autoFee, false);
@@ -581,14 +593,15 @@ contract MurabahaV6 is
         if (msg.sender != p.buyer)           revert Errors.NotBuyer();
         Offer storage o = offers[p.offerId];
         uint256 debt = MurabahaMath.remainingDebt(p.totalPayable, p.totalInstallments, p.paidInstallments);
-        IERC20(p.paymentToken).safeTransferFrom(p.buyer, address(this), debt);
-        IERC20(p.paymentToken).safeTransfer(o.seller, debt);
+        // Build 23: CEI — كل تحديثات الحالة قبل أي تحويل (كما في _chargeInstallment)
         p.paidInstallments = p.totalInstallments;
         p.state = PositionState.COMPLETED;
         _removeActivePosition(positionId); // M-01
         uint256 col = p.collateralAmount;
         p.collateralAmount = 0;
         _custodyOut(collateralCustody, p.collateralToken, col); // Build 22 — خروج
+        IERC20(p.paymentToken).safeTransferFrom(p.buyer, address(this), debt);
+        _deliverToken(p.paymentToken, o.seller, debt); // Build 23 R-1 (F-1)
         _deliverToken(p.collateralToken, p.buyer, col);
         emit EarlyRepaidCash(positionId, debt);
         emit PositionCompleted(positionId, col);
@@ -607,7 +620,9 @@ contract MurabahaV6 is
     function isLiquidatable(uint256 positionId) public view returns (bool, string memory) {
         Position storage p = positions[positionId];
         if (p.state != PositionState.ACTIVE) return (false, "");
-        if (block.timestamp > p.nextDueDate + GRACE_PERIOD) return (true, "overdue");
+        // Build 23 R-2 (F-3): المهلة لا تبدأ قبل آخر استئناف — الإيقاف لا يُحتسب تأخّراً على المشتري
+        uint256 due = p.nextDueDate > lastUnpauseAt ? p.nextDueDate : lastUnpauseAt;
+        if (block.timestamp > due + GRACE_PERIOD) return (true, "overdue");
         if (healthFactor(positionId) < LIQUIDATION_THRESHOLD_BPS) return (true, "undercollateralized");
         return (false, "");
     }
@@ -710,10 +725,9 @@ contract MurabahaV6 is
         Position storage p = positions[positionId];
         if (p.state != PositionState.ACTIVE) revert Errors.PositionNotActive();
 
-        bool overdue = block.timestamp > p.nextDueDate + GRACE_PERIOD;
-        bool undercollateralized = healthFactor(positionId) < LIQUIDATION_THRESHOLD_BPS;
-        if (!overdue && !undercollateralized) revert Errors.NotLiquidatableYet();
-        string memory reason = overdue ? "overdue" : "undercollateralized";
+        // Build 23 R-2: مصدر واحد لشرط التصفية (يرث مهلة ما بعد الاستئناف) — لا تكرار للمنطق
+        (bool liq, string memory reason) = isLiquidatable(positionId);
+        if (!liq) revert Errors.NotLiquidatableYet();
 
         (uint256 s, uint256 r) = _settleByCollateral(positionId, true, false); // يدوي: بدون رسوم
         emit PositionLiquidated(positionId, s, r, reason);
@@ -756,7 +770,8 @@ contract MurabahaV6 is
         return PricingLib.value(tokenConfigs[token], sequencerUptimeFeed, amount); // Build 22: مصدر واحد
     }
 
-    /// @dev يسلّم أصلاً — push مباشر لـ msg.sender، pull للباقين
+    /// @dev يسلّم أصلاً — ETH: push مباشر لـ msg.sender، pull للباقين.
+    ///      ERC20: push، وإن فشل (مستلم محظور في USDC/cbBTC) يُسجَّل معلّقاً — Build 23 R-1.
     function _deliverToken(address token, address to, uint256 amount) internal {
         if (amount == 0) return;
         if (token == address(0)) {
@@ -767,9 +782,17 @@ contract MurabahaV6 is
                 _pendingETH.credit(to, amount);
                 totalPendingETH += amount; // Build 18: M-03
             }
-        } else {
-            IERC20(token).safeTransfer(to, amount);
+        } else if (!IERC20(token).trySafeTransfer(to, amount)) {
+            pendingToken[token][to] += amount; // Build 23 R-1 (F-1/F-2): الفشل لا يُسقط السداد ولا التصفية
+            totalPendingToken[token] += amount;
+            emit PayoutDeferred(token, to, amount);
         }
+    }
+
+    /// @notice Build 23 R-1: سحب مستحق ERC20 معلّق — لصاحبه فقط (لا عنوان بديل: لا التفاف على الحظر)
+    ///         المنطق في CustodyLib (delegatecall في سياق الـProxy) — حدّ حجم العقد §7.
+    function withdrawToken(address token) external nonReentrant {
+        CustodyLib.withdrawPending(pendingToken, totalPendingToken, token);
     }
 
     /// @notice سحب ETH المعلّق (pull pattern)
@@ -816,7 +839,7 @@ contract MurabahaV6 is
         if (msg.sender != owner() && msg.sender != guardian) revert Errors.NotAuthorized();
         _pause();
     }
-    function unpause() external onlyOwner { _unpause(); }
+    function unpause() external onlyOwner { lastUnpauseAt = block.timestamp; _unpause(); } // Build 23 R-2
 
     /// @notice Build 18 (M-03): يضبط حارس الطوارئ (pause فقط). address(0) = تعطيل.
     function setGuardian(address g) external onlyOwner {
@@ -859,7 +882,7 @@ contract MurabahaV6 is
 
     function _exposure(bool offersOnly) internal view returns (uint256) {
         return CustodyLib.exposure(offerCustody, collateralCustody, tokenList, tokenConfigs,
-            totalPendingETH, sequencerUptimeFeed, offersOnly);
+            totalPendingETH, totalPendingToken, sequencerUptimeFeed, offersOnly);
     }
 
 
@@ -868,7 +891,7 @@ contract MurabahaV6 is
     function _enforceCap(uint8 kind) internal view returns (uint256 exp) {
         if (accountingFault) revert Errors.AccountingFault();
         // I2 — قاطع دائرة إن سُحبت أموال بتجاوز المحاسبة
-        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH);
+        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH, totalPendingToken);
         uint256 g = globalCapUSDC;
         if (g == 0) return 0;
         exp = _exposure(false);
@@ -906,7 +929,7 @@ contract MurabahaV6 is
         uint256[] calldata offerValues,
         uint256[] calldata collateralValues
     ) external onlyOwner whenPaused {
-        CustodyLib.reconcile(offerCustody, collateralCustody, tokenList, totalPendingETH,
+        CustodyLib.reconcile(offerCustody, collateralCustody, tokenList, totalPendingETH, totalPendingToken,
             tokens, offerValues, collateralValues);
         accountingFault = false;
     }
@@ -919,7 +942,7 @@ contract MurabahaV6 is
     {
         CustodyLib.migrate(offerCustody, collateralCustody, tokenList, offers, nextOfferId,
             positions, _activePositionIds);
-        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH);
+        CustodyLib.checkSolvency(offerCustody, collateralCustody, tokenList, totalPendingETH, totalPendingToken);
         _setCustodyCaps(globalCap, commitmentCap, offerCap);
     }
 
