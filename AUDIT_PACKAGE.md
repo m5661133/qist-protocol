@@ -2,7 +2,7 @@
 
 > **Prepared for an independent security auditor.** Everything needed to begin immediately: scope, architecture, threat model, trust assumptions, known findings, and the Islamic-finance invariants that make this protocol unusual. Please read §7 (Shariah invariants) — several "bugs" a generic auditor might flag are intentional and religiously required.
 
-**Updated:** 2026-10-06 · **Version under review:** Build 23 (live since 2026-10-06) · **Source commit:** tag `build23-deployed-src` (`5b4903b`) — bytecode-identical to the deployed implementation · **Language:** Solidity 0.8.22 (viaIR, optimizer 200, evm: paris)
+**Updated:** 2026-10-07 · **Version under review:** Build 23 (live since 2026-10-06) · **Source commit:** tag `build23-deployed-src` (`5b4903b`) — bytecode-identical to the deployed implementation · **Language:** Solidity 0.8.22 (viaIR, optimizer 200, evm: paris)
 
 > **What changed since the July package (Build 18/19):** Build 20 (launch caps), Build 21 (KRAIT-001 fix + admin events), and **Build 22** — a global custody cap with per-token custody accounting, an accounting-fault circuit breaker, a Safe-signed reconciliation path, and a split of logic into **four external linked libraries** to stay under EIP-170. Scope grew from ~900 to **~1,270 nSLOC**.
 >
@@ -214,6 +214,11 @@ Internal reviews: automated tools (Slither, Aderyn, Krait), multi-model AI revie
 | L-03 | Low | Mitigated | Fee-on-transfer/rebasing tokens break accounting — owner-gated whitelist |
 | L-04 | Low | Open | No `__gap` — safe while append-only |
 | L-05 | Low | Open | ETH stranded if `msg.value` sent on an ERC20 path |
+| EXT-01 | Med | Open | Dust buys: `BuyLogic` checks `purchaseAmount`/`minPurchaseAmount` but not `totalPayable > 0`; with `minPurchaseAmount = 0` five 1-wei buys fill `maxActivePositions = 5` and block `buy()` for everyone (reported pre-engagement by an external reviewer, 2026-10-05) |
+| EXT-02 | Low | Open | One stale feed makes `_enforceCap(CAP_RESCUE)` revert, blocking `addCollateral` (rescue) while liquidation still works |
+| EXT-03 | Low | Open | cbBTC is priced with the BTC/USD feed (no cbBTC/BTC depeg check) |
+| EXT-04 | Ops | Open | Keeper EOA is also Safe signer #1 — key-role separation pending |
+| EXT-05 | Med | ✅ Build 23 | Pause did not stop the overdue clock — same as F-3 |
 
 **Accepted limitations of the cap (documented in `docs/global-cap-design.md` §9):** checked at entry only (price rises can push exposure above the cap); unlimited USDC approvals in wallets are outside the cap; I2 halts deposits after an exploit but does not recover funds; capacity squatting by unsold offers is bounded by `offerCap` only.
 
